@@ -24,7 +24,8 @@ targets:
     sources: 
       - DynamicIslandWidget
       - Shared
+    infoPlist:
+      NSExtension:
+        NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.hoanglinh.DynamicIslandApp.DynamicIslandWidget
-      GENERATE_INFOPLIST_FILE: YES
-      INFOPLIST_KEY_NSExtensionPointIdentifier: com.apple.widgetkit-extension
