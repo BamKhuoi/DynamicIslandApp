@@ -35,8 +35,35 @@ jobs:
         cp -r build/Build/Products/Release-iphoneos/DynamicIslandApp.app Payload/
         mkdir -p Payload/DynamicIslandApp.app/PlugIns
         cp -r build/Build/Products/Release-iphoneos/DynamicIslandWidget.appex Payload/DynamicIslandApp.app/PlugIns/
-        zip -r DynamicIslandApp.ipa Payload
     
+        # Tự động tạo file Info.plist cho Widget để Sideloadly nhận diện
+        cat <<EOF > Payload/DynamicIslandApp.app/PlugIns/DynamicIslandWidget.appex/Info.plist
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+             <key>CFBundleIdentifier</key>
+             <string>com.hoanglinh.DynamicIslandApp.DynamicIslandWidget</string>
+             <key>CFBundleName</key>
+             <string>DynamicIslandWidget</string>
+             <key>CFBundleExecutable</key>
+             <string>DynamicIslandWidget</string>
+             <key>CFBundleVersion</key>
+             <string>1</string>
+             <key>CFBundleShortVersionString</key>
+             <string>1.0</string>
+             <key>CFBundlePackageType</key>
+             <string>XPC!</string>
+             <key>NSExtension</key>
+             <dict>
+                  <key>NSExtensionPointIdentifier</key>
+                  <string>com.apple.widgetkit-extension</string>
+             </dict>
+        </dict>
+        </plist>
+        EOF
+    
+        zip -r DynamicIslandApp.ipa Payload
 
     - name: Tải file IPA lên Artifacts
       uses: actions/upload-artifact@v4
