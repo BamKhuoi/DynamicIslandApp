@@ -25,5 +25,6 @@ targets:
       - DynamicIslandWidget
       - Shared
     settings:
+     PRODUCT_BUNDLE_IDENTIFIER: com.hoanglinh.DynamicIslandWidget
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_NSExtensionPointIdentifier: com.apple.widgetkit-extension
