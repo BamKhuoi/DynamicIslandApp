@@ -6,8 +6,24 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "16.2"
-    sources: [DynamicIslandApp]
+    sources: 
+      - DynamicIslandApp
+      - Shared
+    dependencies:
+      - target: DynamicIslandWidget
     settings:
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
       INFOPLIST_KEY_UILaunchScreen_Generation: YES
+      INFOPLIST_KEY_NSSupportsLiveActivities: YES
+      
+  DynamicIslandWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "16.2"
+    sources: 
+      - DynamicIslandWidget
+      - Shared
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      INFOPLIST_KEY_NSExtensionPointIdentifier: com.apple.widgetkit-extension
