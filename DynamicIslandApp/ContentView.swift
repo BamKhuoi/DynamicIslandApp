@@ -19,7 +19,7 @@ struct ContentView: View {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         
         let attributes = MyIslandAttributes()
-        let state = MyIslandAttributes.ContentState(customText: "Hoàng Linh đang code!") 
+        let state = MyIslandAttributes.ContentState(customText: "Nguyễn Bố Mày aka Hoàng Linh") 
         let content = ActivityContent(state: state, staleDate: nil)
         
         do {
