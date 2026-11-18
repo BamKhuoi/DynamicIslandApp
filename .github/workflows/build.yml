@@ -1,0 +1,41 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Cài đặt XcodeGen
+      run: brew install xcodegen
+
+    - name: Tạo file Xcode Project
+      run: xcodegen generate
+
+    - name: Build ứng dụng (Bỏ qua Code Signing)
+      run: |
+        xcodebuild clean build \
+          -project DynamicIslandApp.xcodeproj \
+          -scheme DynamicIslandApp \
+          -configuration Release \
+          -sdk iphoneos \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO \
+          -derivedDataPath build
+
+    - name: Đóng gói thành file IPA
+      run: |
+        mkdir -p Payload
+        cp -r build/Build/Products/Release-iphoneos/DynamicIslandApp.app Payload/
+        zip -r DynamicIslandApp.ipa Payload
+
+    - name: Tải file IPA lên Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: DynamicIslandApp-IPA
+        path: DynamicIslandApp.ipa
