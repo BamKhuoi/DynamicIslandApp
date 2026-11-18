@@ -33,7 +33,10 @@ jobs:
       run: |
         mkdir -p Payload
         cp -r build/Build/Products/Release-iphoneos/DynamicIslandApp.app Payload/
+        mkdir -p Payload/DynamicIslandApp.app/PlugIns
+        cp -r build/Build/Products/Release-iphoneos/DynamicIslandWidget.appex Payload/DynamicIslandApp.app/PlugIns/
         zip -r DynamicIslandApp.ipa Payload
+    
 
     - name: Tải file IPA lên Artifacts
       uses: actions/upload-artifact@v4

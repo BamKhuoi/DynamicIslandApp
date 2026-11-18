@@ -11,6 +11,7 @@ targets:
       - Shared
     dependencies:
       - target: DynamicIslandWidget
+        embed: false
     settings:
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
