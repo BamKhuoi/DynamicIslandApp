@@ -73,9 +73,9 @@ struct MyIslandAttributes: ActivityAttributes {
         ]
 
         static let `default` = ContentState(
-            compactText: "DEV",
-            expandedTitle: "Hoàng Linh",
-            expandedSubtitle: "Đang tập trung code...",
+            compactText: "",
+            expandedTitle: "",
+            expandedSubtitle: "",
             iconName: "terminal.fill",
             useEmoji: false,
             emojiText: "🔥",

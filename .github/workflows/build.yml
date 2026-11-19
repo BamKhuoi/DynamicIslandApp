@@ -9,6 +9,13 @@ jobs:
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+
+    - name: Chuẩn hóa kích thước App Icon
+      run: sips -s format png -z 1024 1024 DynamicIslandApp/Assets.xcassets/AppIcon.appiconset/DynamicIsland.png
+
+    - name: Cài đặt XcodeGen
+      run: brew install xcodegen
 
     - name: Cài đặt XcodeGen
       run: brew install xcodegen
