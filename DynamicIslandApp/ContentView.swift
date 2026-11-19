@@ -29,6 +29,7 @@ struct ContentView: View {
     @State private var cityName: String = "Hanoi"
     @State private var weatherInfo: String = "26°C"
     @State private var isLoadingWeather: Bool = false
+    @State private var weatherStatus: String = ""
 
     @State private var countdownMinutes: Int = 25
     @State private var countdownSeconds: Int = 0
@@ -247,22 +248,33 @@ struct ContentView: View {
                     // Cấu hình Thời tiết
                     if mode == .weather {
                         Section(header: Text("Thời tiết tự động (Open-Meteo)")) {
-                            HStack {
-                                TextField("Tên thành phố (VD: Hanoi)", text: $cityName)
-                                Button(action: {
-                                    Task { await fetchWeather() }
-                                }) {
+                            TextField("Tên thành phố (VD: Hanoi, Da Nang)", text: $cityName)
+                                .autocorrectionDisabled(true)
+
+                            Button(action: {
+                                Task { await fetchWeather() }
+                            }) {
+                                HStack {
                                     if isLoadingWeather {
                                         ProgressView()
+                                            .padding(.trailing, 6)
+                                        Text("Đang lấy dữ liệu...")
                                     } else {
-                                        Text("Cập nhật")
+                                        Label("Cập nhật thời tiết ngay", systemImage: "cloud.sun.fill")
                                     }
                                 }
-                                .buttonStyle(.bordered)
                             }
+                            .disabled(isLoadingWeather)
+
                             Text("Hiện tại: \(weatherInfo)")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
+                                .font(.footnote.bold())
+                                .foregroundColor(.cyan)
+
+                            if !weatherStatus.isEmpty {
+                                Text(weatherStatus)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
                         }
                     }
 
@@ -648,33 +660,68 @@ struct ContentView: View {
     }
 
     func fetchWeather() async {
-        isLoadingWeather = true
-        defer { isLoadingWeather = false }
+        await MainActor.run {
+            isLoadingWeather = true
+            weatherStatus = "Đang tìm \(cityName)..."
+        }
 
-        let encodedCity = cityName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Hanoi"
-        guard let geoURL = URL(string: "https://geocoding-api.open-meteo.com/v1/search?name=\(encodedCity)&count=1&format=json") else { return }
+        let trimmedCity = cityName.trimmingCharacters(in: .whitespacesAndNewlines)
+        var geoComponents = URLComponents(string: "https://geocoding-api.open-meteo.com/v1/search")
+        geoComponents?.queryItems = [
+            URLQueryItem(name: "name", value: trimmedCity.isEmpty ? "Hanoi" : trimmedCity),
+            URLQueryItem(name: "count", value: "1"),
+            URLQueryItem(name: "format", value: "json")
+        ]
+
+        guard let geoURL = geoComponents?.url else {
+            await MainActor.run {
+                isLoadingWeather = false
+                weatherStatus = "Tên thành phố không hợp lệ."
+            }
+            return
+        }
 
         do {
             let (geoData, _) = try await URLSession.shared.data(from: geoURL)
             let geoResult = try JSONDecoder().decode(GeoResponse.self, from: geoData)
             guard let place = geoResult.results?.first else {
-                statusMessage = "Không tìm thấy thành phố \(cityName)."
+                await MainActor.run {
+                    isLoadingWeather = false
+                    weatherStatus = "Không tìm thấy thành phố '\(trimmedCity)'."
+                }
                 return
             }
 
-            let weatherURLString = "https://api.open-meteo.com/v1/forecast?latitude=\(place.latitude)&longitude=\(place.longitude)¤t_weather=true"
-            guard let weatherURL = URL(string: weatherURLString) else { return }
+            var weatherComponents = URLComponents(string: "https://api.open-meteo.com/v1/forecast")
+            weatherComponents?.queryItems = [
+                URLQueryItem(name: "latitude", value: "\(place.latitude)"),
+                URLQueryItem(name: "longitude", value: "\(place.longitude)"),
+                URLQueryItem(name: "current", value: "temperature_2m"),
+                URLQueryItem(name: "timezone", value: "auto")
+            ]
+            guard let weatherURL = weatherComponents?.url else { return }
 
             let (wData, _) = try await URLSession.shared.data(from: weatherURL)
             let wResult = try JSONDecoder().decode(WeatherResponse.self, from: wData)
-            let temp = Int(round(wResult.current_weather.temperature))
+            let temp = Int(round(wResult.current.temperature_2m))
 
-            weatherInfo = "\(temp)°C"
-            expandedTitle = "\(place.name): \(temp)°C"
-            saveLastConfig()
-            statusMessage = "Đã lấy thời tiết \(place.name) (\(temp)°C). Bấm Cập nhật để đẩy lên Đảo!"
+            await MainActor.run {
+                weatherInfo = "\(temp)°C"
+                expandedTitle = "\(place.name): \(temp)°C"
+                isLoadingWeather = false
+                weatherStatus = "Đã cập nhật \(place.name): \(temp)°C"
+                saveLastConfig()
+            }
+
+            // Nếu Dynamic Island đang bật thì tự cập nhật luôn nhiệt độ mới
+            if Activity<MyIslandAttributes>.activities.first != nil {
+                await startOrUpdateActivity()
+            }
         } catch {
-            statusMessage = "Lỗi lấy thời tiết: \(error.localizedDescription)"
+            await MainActor.run {
+                isLoadingWeather = false
+                weatherStatus = "Lỗi mạng: \(error.localizedDescription)"
+            }
         }
     }
 }
@@ -906,9 +953,9 @@ struct GeoPlace: Decodable {
 }
 
 struct WeatherResponse: Decodable {
-    let current_weather: CurrentWeather
+    let current: CurrentWeather
 }
 
 struct CurrentWeather: Decodable {
-    let temperature: Double
+    let temperature_2m: Double
 }
