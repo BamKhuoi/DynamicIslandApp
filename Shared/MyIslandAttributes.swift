@@ -71,11 +71,16 @@ enum BatteryHelper {
 
 enum ImageCompressor {
     static func compressForIsland(_ uiImage: UIImage) -> Data? {
-        let sizes: [CGFloat] = [48, 36]
-        let qualities: [CGFloat] = [0.65, 0.5, 0.35, 0.2, 0.1]
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0
+        format.opaque = true
+
+        let sizes: [CGFloat] = [48, 36, 28]
+        let qualities: [CGFloat] = [0.6, 0.45, 0.3, 0.2, 0.1]
+
         for side in sizes {
             let targetSize = CGSize(width: side, height: side)
-            let renderer = UIGraphicsImageRenderer(size: targetSize)
+            let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
             let resized = renderer.image { _ in
                 let aspect = max(targetSize.width / uiImage.size.width, targetSize.height / uiImage.size.height)
                 let w = uiImage.size.width * aspect
@@ -89,12 +94,18 @@ enum ImageCompressor {
                 uiImage.draw(in: rect)
             }
             for q in qualities {
-                if let data = resized.jpegData(compressionQuality: q), data.count <= 1400 {
+                if let data = resized.jpegData(compressionQuality: q), data.count <= 1200 {
                     return data
                 }
             }
         }
-        return nil
+
+        let fallbackSize = CGSize(width: 24, height: 24)
+        let renderer = UIGraphicsImageRenderer(size: fallbackSize, format: format)
+        let tiny = renderer.image { _ in
+            uiImage.draw(in: CGRect(origin: .zero, size: fallbackSize))
+        }
+        return tiny.jpegData(compressionQuality: 0.1)
     }
 }
 

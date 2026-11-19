@@ -314,33 +314,42 @@ struct ContentView: View {
                                 .font(.title2)
 
                         case .photo:
-                            HStack(spacing: 14) {
-                                if let data = customImageData, let uiImg = UIImage(data: data) {
-                                    Image(uiImage: uiImg)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: 48, height: 48)
-                                        .clipShape(photoIsCircle ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 10)))
-                                        .overlay(
-                                            (photoIsCircle ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 10)))
-                                                .stroke(iconColor, lineWidth: 1.5)
-                                        )
-                                } else {
-                                    Image(systemName: "photo.badge.plus")
-                                        .font(.title2)
-                                        .frame(width: 48, height: 48)
-                                        .background(Color.secondary.opacity(0.2))
-                                        .clipShape(Circle())
-                                }
+                            PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
+                                HStack(spacing: 14) {
+                                    if let data = customImageData, let uiImg = UIImage(data: data) {
+                                        Image(uiImage: uiImg)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 48, height: 48)
+                                            .clipShape(photoIsCircle ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 10)))
+                                            .overlay(
+                                                (photoIsCircle ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 10)))
+                                                    .stroke(iconColor, lineWidth: 1.5)
+                                            )
+                                    } else {
+                                        Image(systemName: "photo.badge.plus")
+                                            .font(.title2)
+                                            .foregroundColor(.cyan)
+                                            .frame(width: 48, height: 48)
+                                            .background(Color.cyan.opacity(0.15))
+                                            .clipShape(Circle())
+                                    }
 
-                                PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                                    Text(customImageData == nil ? "Chọn ảnh từ Thư viện" : "Đổi ảnh khác")
-                                        .font(.subheadline.bold())
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(customImageData == nil ? "Chọn ảnh từ Thư viện" : "Đổi ảnh khác")
+                                            .font(.subheadline.bold())
+                                            .foregroundColor(.cyan)
+                                        Text(customImageData == nil ? "Tự động nén nhẹ cho Dynamic Island" : "Đã sẵn sàng (\(customImageData?.count ?? 0) bytes)")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
                                 }
-                                .buttonStyle(.borderedProminent)
-                                .tint(.cyan)
+                                .padding(.vertical, 4)
                             }
-                            .padding(.vertical, 4)
 
                             Toggle("Bo tròn kiểu Avatar", isOn: $photoIsCircle)
                         }
@@ -470,17 +479,29 @@ struct ContentView: View {
             .onChange(of: selectedPhotoItem) { newItem in
                 guard let newItem else { return }
                 Task {
-                    if let rawData = try? await newItem.loadTransferable(type: Data.self),
-                       let uiImg = UIImage(data: rawData),
-                       let compressed = ImageCompressor.compressForIsland(uiImg) {
-                        await MainActor.run {
-                            customImageData = compressed
-                            iconSource = .photo
-                            statusMessage = "Đã nén ảnh (\(compressed.count) bytes) sẵn sàng đẩy lên Đảo!"
+                    defer {
+                        Task { @MainActor in
+                            selectedPhotoItem = nil
                         }
-                    } else {
+                    }
+                    do {
+                        if let rawData = try await newItem.loadTransferable(type: Data.self),
+                           let uiImg = UIImage(data: rawData),
+                           let compressed = ImageCompressor.compressForIsland(uiImg) {
+                            await MainActor.run {
+                                customImageData = compressed
+                                iconSource = .photo
+                                saveLastConfig()
+                                statusMessage = "Đã nạp ảnh (\(compressed.count) bytes). Bấm Cập nhật để đẩy lên Đảo!"
+                            }
+                        } else {
+                            await MainActor.run {
+                                statusMessage = "Không thể đọc dữ liệu ảnh này, hãy thử chọn ảnh JPG/PNG khác."
+                            }
+                        }
+                    } catch {
                         await MainActor.run {
-                            statusMessage = "Không thể xử lý ảnh này, vui lòng thử ảnh khác."
+                            statusMessage = "Lỗi tải ảnh: \(error.localizedDescription)"
                         }
                     }
                 }
