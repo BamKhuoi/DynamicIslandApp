@@ -1,21 +1,30 @@
 import SwiftUI
 import ActivityKit
+import PhotosUI
+import UIKit
 
 struct ContentView: View {
     @State private var mode: IslandDisplayMode = .text
     @State private var fontStyle: IslandFontStyle = .monospaced
-    @State private var compactText: String = ""
-    @State private var expandedTitle: String = ""
-    @State private var expandedSubtitle: String = ""
+    @State private var compactText: String = "🤓"
+    @State private var expandedTitle: String = "Hoàng Linh"
+    @State private var expandedSubtitle: String = "Nguyễn Bố Mày"
 
-    @State private var useEmoji: Bool = false
-    @State private var emojiText: String = "🔥"
+    @State private var iconSource: IslandIconSource = .symbol
+    @State private var emojiText: String = "🤓"
     @State private var selectedIcon: String = "terminal.fill"
+    @State private var selectedPhotoItem: PhotosPickerItem? = nil
+    @State private var customImageData: Data? = nil
+    @State private var photoIsCircle: Bool = true
 
     @State private var iconColor: Color = Color(hex: "00FF9C")
     @State private var textColor: Color = Color(hex: "00E5FF")
     @State private var keylineColor: Color = Color(hex: "00E5FF")
     @State private var useKeyline: Bool = true
+
+    @State private var bgStyle: IslandBackgroundStyle = .gradient
+    @State private var bgColor: Color = Color(hex: "0B132B")
+    @State private var bgColor2: Color = Color(hex: "1C2541")
 
     @State private var cityName: String = "Hanoi"
     @State private var weatherInfo: String = "26°C"
@@ -24,8 +33,15 @@ struct ContentView: View {
     @State private var countdownMinutes: Int = 25
     @State private var countdownSeconds: Int = 0
 
+    @State private var batteryLevel: Int = 85
+    @State private var isCharging: Bool = false
+
     @State private var counterValue: Int = 0
     @State private var showCounter: Bool = true
+
+    @State private var showTodos: Bool = true
+    @State private var todos: [TodoItem] = MyIslandAttributes.ContentState.defaultTodos
+
     @State private var showLauncher: Bool = true
     @State private var shortcuts: [QuickShortcut] = MyIslandAttributes.ContentState.defaultShortcuts
 
@@ -36,8 +52,8 @@ struct ContentView: View {
     @State private var previewExpanded: Bool = false
     @State private var statusMessage: String = ""
 
-    private let lastConfigKey = "island_studio_last_config_v2"
-    private let customPresetsKey = "island_studio_custom_presets_v2"
+    private let lastConfigKey = "island_studio_last_config_v3"
+    private let customPresetsKey = "island_studio_custom_presets_v3"
 
     let presetIcons = [
         "terminal.fill", "flame.fill", "bolt.fill", "star.fill", "heart.fill",
@@ -46,7 +62,8 @@ struct ContentView: View {
         "bicycle", "airplane", "battery.100", "clock.fill", "wifi"
     ]
 
-    let columns = [GridItem(.adaptive(minimum: 42))]
+    let iconColumns = [GridItem(.adaptive(minimum: 42))]
+    let modeColumns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
 
     var currentPreviewState: MyIslandAttributes.ContentState {
         let duration = max(1, countdownMinutes * 60 + countdownSeconds)
@@ -54,20 +71,30 @@ struct ContentView: View {
             compactText: compactText,
             expandedTitle: expandedTitle,
             expandedSubtitle: expandedSubtitle,
+            iconSource: iconSource,
             iconName: selectedIcon,
-            useEmoji: useEmoji,
             emojiText: emojiText,
+            customImageData: customImageData,
+            photoIsCircle: photoIsCircle,
             iconColorHex: iconColor.toHex(),
             textColorHex: textColor.toHex(),
             keylineColorHex: keylineColor.toHex(),
             useKeyline: useKeyline,
+            bgStyle: bgStyle,
+            bgColorHex: bgColor.toHex(),
+            bgColor2Hex: bgColor2.toHex(),
             fontStyle: fontStyle,
             mode: mode,
             weatherInfo: weatherInfo,
             countdownStart: Date(),
             countdownEnd: Date().addingTimeInterval(TimeInterval(duration)),
+            stopwatchStart: Date(),
+            batteryLevel: batteryLevel,
+            isCharging: isCharging,
             counter: counterValue,
             showCounter: showCounter,
+            showTodos: showTodos,
+            todos: todos,
             showLauncher: showLauncher,
             shortcuts: shortcuts
         )
@@ -80,7 +107,6 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Khung Live Preview ghim cố định trên cùng
                 IslandLivePreviewHeader(
                     state: currentPreviewState,
                     countdownText: String(format: "%02d:%02d", countdownMinutes, countdownSeconds),
@@ -97,7 +123,7 @@ struct ContentView: View {
                                         applyPreset(preset)
                                     }) {
                                         HStack(spacing: 6) {
-                                            if preset.state.useEmoji {
+                                            if preset.state.iconSource == .emoji {
                                                 Text(preset.state.emojiText)
                                             } else {
                                                 Image(systemName: preset.state.iconName)
@@ -142,14 +168,32 @@ struct ContentView: View {
                         }
                     }
 
-                    // Chế độ hiển thị
+                    // Chế độ hiển thị (Lưới 3x2 gọn gàng)
                     Section(header: Text("Chế độ góc phải Đảo động")) {
-                        Picker("Chế độ", selection: $mode) {
+                        LazyVGrid(columns: modeColumns, spacing: 8) {
                             ForEach(IslandDisplayMode.allCases, id: \.self) { item in
-                                Text(item.rawValue).tag(item)
+                                Button(action: {
+                                    mode = item
+                                    if item == .battery {
+                                        refreshLocalBattery()
+                                    }
+                                }) {
+                                    Text(item.rawValue)
+                                        .font(.caption.bold())
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 8)
+                                        .background(mode == item ? iconColor.opacity(0.25) : Color.secondary.opacity(0.12))
+                                        .foregroundColor(mode == item ? iconColor : .primary)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(mode == item ? iconColor : Color.clear, lineWidth: 1)
+                                        )
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
-                        .pickerStyle(.segmented)
+                        .padding(.vertical, 4)
 
                         Picker("Kiểu chữ", selection: $fontStyle) {
                             ForEach(IslandFontStyle.allCases, id: \.self) { style in
@@ -170,6 +214,33 @@ struct ContentView: View {
                             }
                             Stepper("Phút: \(countdownMinutes)", value: $countdownMinutes, in: 0...180)
                             Stepper("Giây: \(countdownSeconds)", value: $countdownSeconds, in: 0...59, step: 5)
+                        }
+                    }
+
+                    // Thông tin Bấm giờ
+                    if mode == .stopwatch {
+                        Section(header: Text("Đồng hồ bấm giờ (Stopwatch)")) {
+                            Text("Đảo động sẽ tự động đếm từ 00:00 khi bạn bấm Cập nhật. Chạm giữ Đảo để bấm nút Reset về 0 bất kỳ lúc nào.")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    // Thông tin Pin
+                    if mode == .battery {
+                        Section(header: Text("Trạng thái Pin hiện tại")) {
+                            HStack {
+                                Label(
+                                    "\(batteryLevel)% \(isCharging ? "(Đang sạc)" : "")",
+                                    systemImage: isCharging ? "battery.100.bolt" : "battery.75"
+                                )
+                                .foregroundColor(batteryLevel <= 20 && !isCharging ? .red : .green)
+                                Spacer()
+                                Button("Đọc lại") {
+                                    refreshLocalBattery()
+                                }
+                                .buttonStyle(.bordered)
+                            }
                         }
                     }
 
@@ -204,15 +275,18 @@ struct ContentView: View {
                         TextField("Dòng phụ khi mở rộng Đảo", text: $expandedSubtitle)
                     }
 
-                    // Icon hoặc Emoji
-                    Section(header: Text("Biểu tượng (SF Symbols / Emoji)")) {
-                        Toggle("Dùng Emoji thay cho Icon", isOn: $useEmoji)
+                    // Biểu tượng: SF Symbol / Emoji / Ảnh thư viện
+                    Section(header: Text("Biểu tượng (Icon / Emoji / Ảnh từ máy)")) {
+                        Picker("Loại biểu tượng", selection: $iconSource) {
+                            ForEach(IslandIconSource.allCases, id: \.self) { src in
+                                Text(src.rawValue).tag(src)
+                            }
+                        }
+                        .pickerStyle(.segmented)
 
-                        if useEmoji {
-                            TextField("Nhập 1 Emoji (VD: 🔥, ⚡, 🎧)", text: $emojiText)
-                                .font(.title2)
-                        } else {
-                            LazyVGrid(columns: columns, spacing: 10) {
+                        switch iconSource {
+                        case .symbol:
+                            LazyVGrid(columns: iconColumns, spacing: 10) {
                                 ForEach(presetIcons, id: \.self) { icon in
                                     Image(systemName: icon)
                                         .font(.title3)
@@ -234,11 +308,60 @@ struct ContentView: View {
                             TextField("Hoặc gõ tên SF Symbol tùy ý...", text: $selectedIcon)
                                 .autocapitalization(.none)
                                 .disableAutocorrection(true)
+
+                        case .emoji:
+                            TextField("Nhập 1 Emoji (VD: 🔥, ⚡, 🎧)", text: $emojiText)
+                                .font(.title2)
+
+                        case .photo:
+                            HStack(spacing: 14) {
+                                if let data = customImageData, let uiImg = UIImage(data: data) {
+                                    Image(uiImage: uiImg)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 48, height: 48)
+                                        .clipShape(photoIsCircle ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 10)))
+                                        .overlay(
+                                            (photoIsCircle ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 10)))
+                                                .stroke(iconColor, lineWidth: 1.5)
+                                        )
+                                } else {
+                                    Image(systemName: "photo.badge.plus")
+                                        .font(.title2)
+                                        .frame(width: 48, height: 48)
+                                        .background(Color.secondary.opacity(0.2))
+                                        .clipShape(Circle())
+                                }
+
+                                PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                                    Text(customImageData == nil ? "Chọn ảnh từ Thư viện" : "Đổi ảnh khác")
+                                        .font(.subheadline.bold())
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(.cyan)
+                            }
+                            .padding(.vertical, 4)
+
+                            Toggle("Bo tròn kiểu Avatar", isOn: $photoIsCircle)
                         }
                     }
 
-                    // Màu sắc & Viền Neon
-                    Section(header: Text("Màu sắc & Viền Neon")) {
+                    // Nền & Màu sắc
+                    Section(header: Text("Nền hiển thị (Màn hình khóa & Thẻ mở rộng)")) {
+                        Picker("Kiểu nền", selection: $bgStyle) {
+                            ForEach(IslandBackgroundStyle.allCases, id: \.self) { st in
+                                Text(st.rawValue).tag(st)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        ColorPicker("Màu nền chính", selection: $bgColor, supportsOpacity: false)
+                        if bgStyle == .gradient {
+                            ColorPicker("Màu nền thứ 2 (Gradient)", selection: $bgColor2, supportsOpacity: false)
+                        }
+                    }
+
+                    Section(header: Text("Màu chữ, Icon & Viền Neon")) {
                         ColorPicker("Màu Icon / Thanh tiến trình", selection: $iconColor, supportsOpacity: false)
                         ColorPicker("Màu Chữ / Đồng hồ", selection: $textColor, supportsOpacity: false)
                         Toggle("Bật viền phát sáng Neon", isOn: $useKeyline)
@@ -247,8 +370,29 @@ struct ContentView: View {
                         }
                     }
 
-                    // Tiện ích mở rộng trên Đảo
-                    Section(header: Text("Tương tác & Bệ phóng App")) {
+                    // Mini To-Do Checklist
+                    Section(header: Text("Checklist 3 việc cần làm (Tương tác trên Đảo)")) {
+                        Toggle("Hiện Checklist trên Đảo", isOn: $showTodos)
+                        if showTodos {
+                            ForEach($todos) { $todo in
+                                HStack {
+                                    Button(action: {
+                                        todo.isDone.toggle()
+                                    }) {
+                                        Image(systemName: todo.isDone ? "checkmark.circle.fill" : "circle")
+                                            .foregroundColor(todo.isDone ? iconColor : .gray)
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    TextField("Nhập đầu việc...", text: $todo.title)
+                                        .strikethrough(todo.isDone)
+                                }
+                            }
+                        }
+                    }
+
+                    // Bộ đếm & Bệ phóng App
+                    Section(header: Text("Bộ đếm & Bệ phóng mở nhanh App")) {
                         Toggle("Hiện bộ đếm (+ / -) trên Đảo", isOn: $showCounter)
                         if showCounter {
                             Stepper("Giá trị ban đầu: \(counterValue)", value: $counterValue, in: 0...999)
@@ -283,6 +427,7 @@ struct ContentView: View {
                     // Nút điều khiển chính
                     Section {
                         Button(action: {
+                            refreshLocalBattery()
                             saveLastConfig()
                             Task { await startOrUpdateActivity() }
                         }) {
@@ -315,11 +460,30 @@ struct ContentView: View {
                     }
                 }
             }
-            .navigationTitle("Island Studio Pro")
+            .navigationTitle("Hoàng Linh's Island Studio")
             .navigationBarTitleDisplayMode(.inline)
             .preferredColorScheme(.dark)
             .onAppear {
                 loadSavedData()
+                refreshLocalBattery()
+            }
+            .onChange(of: selectedPhotoItem) { newItem in
+                guard let newItem else { return }
+                Task {
+                    if let rawData = try? await newItem.loadTransferable(type: Data.self),
+                       let uiImg = UIImage(data: rawData),
+                       let compressed = ImageCompressor.compressForIsland(uiImg) {
+                        await MainActor.run {
+                            customImageData = compressed
+                            iconSource = .photo
+                            statusMessage = "Đã nén ảnh (\(compressed.count) bytes) sẵn sàng đẩy lên Đảo!"
+                        }
+                    } else {
+                        await MainActor.run {
+                            statusMessage = "Không thể xử lý ảnh này, vui lòng thử ảnh khác."
+                        }
+                    }
+                }
             }
             .alert("Lưu Preset mới", isPresented: $showingSavePresetAlert) {
                 TextField("Tên Preset (VD: Chill tối)", text: $newPresetName)
@@ -329,6 +493,12 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    func refreshLocalBattery() {
+        let info = BatteryHelper.currentStatus()
+        batteryLevel = info.level
+        isCharging = info.isCharging
     }
 
     func quickTimerButton(label: String, mins: Int, secs: Int) -> some View {
@@ -348,16 +518,23 @@ struct ContentView: View {
         compactText = s.compactText
         expandedTitle = s.expandedTitle
         expandedSubtitle = s.expandedSubtitle
-        useEmoji = s.useEmoji
+        iconSource = s.iconSource
         emojiText = s.emojiText
         selectedIcon = s.iconName
+        customImageData = s.customImageData
+        photoIsCircle = s.photoIsCircle
         iconColor = Color(hex: s.iconColorHex)
         textColor = Color(hex: s.textColorHex)
         keylineColor = Color(hex: s.keylineColorHex)
         useKeyline = s.useKeyline
+        bgStyle = s.bgStyle
+        bgColor = Color(hex: s.bgColorHex)
+        bgColor2 = Color(hex: s.bgColor2Hex)
         weatherInfo = s.weatherInfo
         counterValue = s.counter
         showCounter = s.showCounter
+        showTodos = s.showTodos
+        todos = s.todos
         showLauncher = s.showLauncher
         shortcuts = s.shortcuts
         countdownMinutes = preset.countdownMinutes
@@ -494,12 +671,12 @@ struct IslandLivePreviewHeader: View {
         VStack(spacing: 6) {
             Group {
                 if isExpanded {
-                    VStack(spacing: 10) {
+                    VStack(spacing: 8) {
                         HStack {
-                            previewIcon(font: .title2, color: iconColor)
+                            previewIcon(size: 30, color: iconColor)
                             Spacer()
                             VStack(spacing: 2) {
-                                Text(state.expandedTitle)
+                                Text(state.expandedTitle.isEmpty ? "Hoàng Linh's Island Studio" : state.expandedTitle)
                                     .font(.system(.subheadline, design: state.fontStyle.design).bold())
                                     .foregroundColor(textColor)
                                     .lineLimit(1)
@@ -523,8 +700,32 @@ struct IslandLivePreviewHeader: View {
                                 }
                         }
 
+                        if state.showTodos {
+                            let activeTodos = state.todos.filter { !$0.title.trimmingCharacters(in: .whitespaces).isEmpty }
+                            if !activeTodos.isEmpty {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    ForEach(activeTodos.prefix(3)) { todo in
+                                        HStack(spacing: 6) {
+                                            Image(systemName: todo.isDone ? "checkmark.circle.fill" : "circle")
+                                                .font(.caption2)
+                                                .foregroundColor(todo.isDone ? iconColor : .gray)
+                                            Text(todo.title)
+                                                .font(.system(.caption2, design: state.fontStyle.design))
+                                                .strikethrough(todo.isDone)
+                                                .foregroundColor(todo.isDone ? .gray : .white)
+                                                .lineLimit(1)
+                                            Spacer()
+                                        }
+                                    }
+                                }
+                                .padding(6)
+                                .background(previewCardBg.opacity(0.65))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                        }
+
                         if state.showCounter || state.showLauncher {
-                            HStack(spacing: 8) {
+                            HStack(spacing: 6) {
                                 if state.showCounter {
                                     HStack(spacing: 6) {
                                         Image(systemName: "minus.circle.fill").foregroundColor(.gray)
@@ -533,14 +734,14 @@ struct IslandLivePreviewHeader: View {
                                             .foregroundColor(textColor)
                                         Image(systemName: "plus.circle.fill").foregroundColor(iconColor)
                                     }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(Color.white.opacity(0.1))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(previewCardBg.opacity(0.75))
                                     .clipShape(Capsule())
                                 }
 
                                 if state.showLauncher {
-                                    HStack(spacing: 6) {
+                                    HStack(spacing: 5) {
                                         ForEach(state.shortcuts.prefix(4)) { item in
                                             VStack(spacing: 2) {
                                                 Image(systemName: item.icon)
@@ -553,7 +754,7 @@ struct IslandLivePreviewHeader: View {
                                             }
                                             .frame(maxWidth: .infinity)
                                             .padding(.vertical, 4)
-                                            .background(Color.white.opacity(0.08))
+                                            .background(previewCardBg.opacity(0.75))
                                             .clipShape(RoundedRectangle(cornerRadius: 8))
                                         }
                                     }
@@ -572,7 +773,7 @@ struct IslandLivePreviewHeader: View {
                     .shadow(color: state.useKeyline ? borderColor.opacity(0.45) : .clear, radius: 10)
                 } else {
                     HStack {
-                        previewIcon(font: .caption, color: iconColor)
+                        previewIcon(size: 20, color: iconColor)
                         Spacer()
                         Circle()
                             .fill(Color.white.opacity(0.08))
@@ -581,7 +782,7 @@ struct IslandLivePreviewHeader: View {
                         previewMetric(color: textColor, compact: true)
                     }
                     .padding(.horizontal, 14)
-                    .frame(width: 210, height: 36)
+                    .frame(width: 215, height: 36)
                     .background(Color.black)
                     .clipShape(Capsule())
                     .overlay(
@@ -606,11 +807,43 @@ struct IslandLivePreviewHeader: View {
     }
 
     @ViewBuilder
-    func previewIcon(font: Font, color: Color) -> some View {
-        if state.useEmoji {
-            Text(state.emojiText.isEmpty ? "✨" : state.emojiText).font(font)
-        } else {
-            Image(systemName: state.iconName).font(font).foregroundColor(color)
+    var previewCardBg: some View {
+        switch state.bgStyle {
+        case .solid:
+            Color(hex: state.bgColorHex)
+        case .gradient:
+            LinearGradient(
+                colors: [Color(hex: state.bgColorHex), Color(hex: state.bgColor2Hex)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .glass:
+            Color(hex: state.bgColorHex).opacity(0.35)
+        }
+    }
+
+    @ViewBuilder
+    func previewIcon(size: CGFloat, color: Color) -> some View {
+        switch state.iconSource {
+        case .photo:
+            if let data = state.customImageData, let uiImg = UIImage(data: data) {
+                Image(uiImage: uiImg)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipShape(state.photoIsCircle ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: size * 0.25)))
+            } else {
+                Image(systemName: "photo.fill")
+                    .font(.system(size: size * 0.7))
+                    .foregroundColor(color)
+            }
+        case .emoji:
+            Text(state.emojiText.isEmpty ? "✨" : state.emojiText)
+                .font(.system(size: size * 0.85))
+        case .symbol:
+            Image(systemName: state.iconName)
+                .font(.system(size: size * 0.78))
+                .foregroundColor(color)
         }
     }
 
@@ -626,6 +859,17 @@ struct IslandLivePreviewHeader: View {
             Text(state.weatherInfo).font(font).foregroundColor(color)
         case .countdown:
             Text(countdownText).font(font).foregroundColor(color)
+        case .stopwatch:
+            Text("00:15").font(font).foregroundColor(color)
+        case .battery:
+            HStack(spacing: 3) {
+                if state.isCharging {
+                    Image(systemName: "bolt.fill").font(.caption2).foregroundColor(.green)
+                }
+                Text("\(state.batteryLevel)%")
+                    .font(font)
+                    .foregroundColor(state.batteryLevel <= 20 && !state.isCharging ? .red : .green)
+            }
         }
     }
 }

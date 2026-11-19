@@ -7,6 +7,8 @@ enum IslandDisplayMode: String, Codable, CaseIterable, Hashable {
     case clock = "Đồng hồ"
     case weather = "Thời tiết"
     case countdown = "Đếm ngược"
+    case stopwatch = "Bấm giờ"
+    case battery = "Pin"
 
     func next() -> IslandDisplayMode {
         let all = Self.allCases
@@ -31,6 +33,18 @@ enum IslandFontStyle: String, Codable, CaseIterable, Hashable {
     }
 }
 
+enum IslandIconSource: String, Codable, CaseIterable, Hashable {
+    case symbol = "SF Symbol"
+    case emoji = "Emoji"
+    case photo = "Ảnh máy"
+}
+
+enum IslandBackgroundStyle: String, Codable, CaseIterable, Hashable {
+    case solid = "Màu đơn"
+    case gradient = "Gradient"
+    case glass = "Kính mờ"
+}
+
 struct QuickShortcut: Codable, Hashable, Identifiable {
     var id: String = UUID().uuidString
     var name: String
@@ -38,25 +52,90 @@ struct QuickShortcut: Codable, Hashable, Identifiable {
     var urlString: String
 }
 
+struct TodoItem: Codable, Hashable, Identifiable {
+    var id: String = UUID().uuidString
+    var title: String
+    var isDone: Bool = false
+}
+
+enum BatteryHelper {
+    static func currentStatus() -> (level: Int, isCharging: Bool) {
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        let raw = UIDevice.current.batteryLevel
+        let level = raw < 0 ? 100 : Int(round(raw * 100))
+        let state = UIDevice.current.batteryState
+        let isCharging = (state == .charging || state == .full)
+        return (level, isCharging)
+    }
+}
+
+enum ImageCompressor {
+    static func compressForIsland(_ uiImage: UIImage) -> Data? {
+        let sizes: [CGFloat] = [48, 36]
+        let qualities: [CGFloat] = [0.65, 0.5, 0.35, 0.2, 0.1]
+        for side in sizes {
+            let targetSize = CGSize(width: side, height: side)
+            let renderer = UIGraphicsImageRenderer(size: targetSize)
+            let resized = renderer.image { _ in
+                let aspect = max(targetSize.width / uiImage.size.width, targetSize.height / uiImage.size.height)
+                let w = uiImage.size.width * aspect
+                let h = uiImage.size.height * aspect
+                let rect = CGRect(
+                    x: (targetSize.width - w) / 2,
+                    y: (targetSize.height - h) / 2,
+                    width: w,
+                    height: h
+                )
+                uiImage.draw(in: rect)
+            }
+            for q in qualities {
+                if let data = resized.jpegData(compressionQuality: q), data.count <= 1400 {
+                    return data
+                }
+            }
+        }
+        return nil
+    }
+}
+
 struct MyIslandAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
         var compactText: String
         var expandedTitle: String
         var expandedSubtitle: String
+
+        var iconSource: IslandIconSource
         var iconName: String
-        var useEmoji: Bool
         var emojiText: String
+        var customImageData: Data?
+        var photoIsCircle: Bool
+
         var iconColorHex: String
         var textColorHex: String
         var keylineColorHex: String
         var useKeyline: Bool
+
+        var bgStyle: IslandBackgroundStyle
+        var bgColorHex: String
+        var bgColor2Hex: String
+
         var fontStyle: IslandFontStyle
         var mode: IslandDisplayMode
         var weatherInfo: String
+
         var countdownStart: Date
         var countdownEnd: Date
+        var stopwatchStart: Date
+
+        var batteryLevel: Int
+        var isCharging: Bool
+
         var counter: Int
         var showCounter: Bool
+
+        var showTodos: Bool
+        var todos: [TodoItem]
+
         var showLauncher: Bool
         var shortcuts: [QuickShortcut]
 
@@ -69,27 +148,43 @@ struct MyIslandAttributes: ActivityAttributes {
             QuickShortcut(name: "YouTube", icon: "play.rectangle.fill", urlString: "youtube://"),
             QuickShortcut(name: "Messenger", icon: "message.fill", urlString: "fb-messenger://"),
             QuickShortcut(name: "Spotify", icon: "music.note", urlString: "spotify://"),
-            QuickShortcut(name: "Google", icon: "safari.fill", urlString: "https://google.com")
+            QuickShortcut(name: "Zalo", icon: "bubble.left.fill", urlString: "zalo://")
+        ]
+
+        static let defaultTodos: [TodoItem] = [
+            TodoItem(id: "todo-1", title: "Hoàn thành bài tập", isDone: false),
+            TodoItem(id: "todo-2", title: "Tập gym 45 phút", isDone: false),
+            TodoItem(id: "todo-3", title: "Uống đủ 2L nước", isDone: false)
         ]
 
         static let `default` = ContentState(
-            compactText: "",
-            expandedTitle: "",
-            expandedSubtitle: "",
+            compactText: "DEV",
+            expandedTitle: "Island Studio",
+            expandedSubtitle: "Chạm giữ để tương tác",
+            iconSource: .symbol,
             iconName: "terminal.fill",
-            useEmoji: false,
             emojiText: "🔥",
+            customImageData: nil,
+            photoIsCircle: true,
             iconColorHex: "00FF9C",
             textColorHex: "00E5FF",
             keylineColorHex: "00E5FF",
             useKeyline: true,
+            bgStyle: .gradient,
+            bgColorHex: "0B132B",
+            bgColor2Hex: "1C2541",
             fontStyle: .monospaced,
             mode: .text,
             weatherInfo: "26°C",
             countdownStart: Date(),
             countdownEnd: Date().addingTimeInterval(25 * 60),
+            stopwatchStart: Date(),
+            batteryLevel: 85,
+            isCharging: false,
             counter: 0,
             showCounter: true,
+            showTodos: true,
+            todos: defaultTodos,
             showLauncher: true,
             shortcuts: defaultShortcuts
         )
@@ -122,20 +217,30 @@ struct IslandPreset: Codable, Identifiable, Equatable {
                 compactText: "FOCUS",
                 expandedTitle: "Tập trung học bài",
                 expandedSubtitle: "Phiên Pomodoro 25 phút",
+                iconSource: .symbol,
                 iconName: "flame.fill",
-                useEmoji: false,
                 emojiText: "🍅",
+                customImageData: nil,
+                photoIsCircle: true,
                 iconColorHex: "FF5E3A",
                 textColorHex: "FFD60A",
                 keylineColorHex: "FF5E3A",
                 useKeyline: true,
+                bgStyle: .gradient,
+                bgColorHex: "2B0A0A",
+                bgColor2Hex: "0F0F12",
                 fontStyle: .rounded,
                 mode: .countdown,
                 weatherInfo: "26°C",
                 countdownStart: Date(),
                 countdownEnd: Date().addingTimeInterval(25 * 60),
+                stopwatchStart: Date(),
+                batteryLevel: 85,
+                isCharging: false,
                 counter: 1,
                 showCounter: true,
+                showTodos: true,
+                todos: MyIslandAttributes.ContentState.defaultTodos,
                 showLauncher: false,
                 shortcuts: MyIslandAttributes.ContentState.defaultShortcuts
             ),
@@ -145,26 +250,36 @@ struct IslandPreset: Codable, Identifiable, Equatable {
             isBuiltIn: true
         ),
         IslandPreset(
-            id: "builtin-gym",
-            name: "Nghỉ tập 90s",
+            id: "builtin-stopwatch",
+            name: "Bấm giờ Gym",
             state: MyIslandAttributes.ContentState(
                 compactText: "GYM",
-                expandedTitle: "Nghỉ giữa hiệp",
-                expandedSubtitle: "Bấm + để đếm số hiệp",
+                expandedTitle: "Đang tập luyện",
+                expandedSubtitle: "Bấm Reset để tính hiệp mới",
+                iconSource: .symbol,
                 iconName: "dumbbell.fill",
-                useEmoji: false,
                 emojiText: "💪",
+                customImageData: nil,
+                photoIsCircle: true,
                 iconColorHex: "32D74B",
                 textColorHex: "FFFFFF",
                 keylineColorHex: "32D74B",
                 useKeyline: true,
+                bgStyle: .solid,
+                bgColorHex: "0D1F12",
+                bgColor2Hex: "09120C",
                 fontStyle: .rounded,
-                mode: .countdown,
+                mode: .stopwatch,
                 weatherInfo: "26°C",
                 countdownStart: Date(),
                 countdownEnd: Date().addingTimeInterval(90),
+                stopwatchStart: Date(),
+                batteryLevel: 85,
+                isCharging: false,
                 counter: 1,
                 showCounter: true,
+                showTodos: false,
+                todos: MyIslandAttributes.ContentState.defaultTodos,
                 showLauncher: true,
                 shortcuts: MyIslandAttributes.ContentState.defaultShortcuts
             ),
@@ -174,26 +289,36 @@ struct IslandPreset: Codable, Identifiable, Equatable {
             isBuiltIn: true
         ),
         IslandPreset(
-            id: "builtin-minimal",
-            name: "Đồng hồ Tối giản",
+            id: "builtin-battery",
+            name: "Theo dõi Pin",
             state: MyIslandAttributes.ContentState(
-                compactText: "LIVE",
-                expandedTitle: "Thời gian thực",
-                expandedSubtitle: "Chế độ tối giản",
-                iconName: "clock.fill",
-                useEmoji: false,
-                emojiText: "⌚",
-                iconColorHex: "BF5AF2",
+                compactText: "BAT",
+                expandedTitle: "Trạng thái Pin",
+                expandedSubtitle: "Bấm biểu tượng làm mới để cập nhật",
+                iconSource: .symbol,
+                iconName: "bolt.fill",
+                emojiText: "🔋",
+                customImageData: nil,
+                photoIsCircle: true,
+                iconColorHex: "30D158",
                 textColorHex: "FFFFFF",
-                keylineColorHex: "BF5AF2",
+                keylineColorHex: "30D158",
                 useKeyline: true,
+                bgStyle: .glass,
+                bgColorHex: "111827",
+                bgColor2Hex: "000000",
                 fontStyle: .monospaced,
-                mode: .clock,
+                mode: .battery,
                 weatherInfo: "26°C",
                 countdownStart: Date(),
                 countdownEnd: Date().addingTimeInterval(600),
+                stopwatchStart: Date(),
+                batteryLevel: 85,
+                isCharging: false,
                 counter: 0,
                 showCounter: false,
+                showTodos: false,
+                todos: MyIslandAttributes.ContentState.defaultTodos,
                 showLauncher: true,
                 shortcuts: MyIslandAttributes.ContentState.defaultShortcuts
             ),
