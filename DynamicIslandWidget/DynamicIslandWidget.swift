@@ -12,11 +12,19 @@ struct IslandIconView: View {
         switch state.iconSource {
         case .photo:
             if let data = state.customImageData, let uiImage = UIImage(data: data) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: size, height: size)
-                    .clipShape(state.photoIsCircle ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: size * 0.25)))
+                if state.photoIsCircle {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: size, height: size)
+                        .clipShape(Circle())
+                } else {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: size, height: size)
+                        .clipShape(RoundedRectangle(cornerRadius: size * 0.25))
+                }
             } else {
                 Image(systemName: "photo.fill")
                     .font(.system(size: size * 0.7))

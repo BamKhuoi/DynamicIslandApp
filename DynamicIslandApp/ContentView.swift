@@ -75,7 +75,7 @@ struct ContentView: View {
             iconSource: iconSource,
             iconName: selectedIcon,
             emojiText: emojiText,
-            customImageData: customImageData,
+            customImageData: iconSource == .photo ? customImageData : nil,
             photoIsCircle: photoIsCircle,
             iconColorHex: iconColor.toHex(),
             textColorHex: textColor.toHex(),

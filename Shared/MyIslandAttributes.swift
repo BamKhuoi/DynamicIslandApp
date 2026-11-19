@@ -1,5 +1,3 @@
-import ImageIO
-import UniformTypeIdentifiers
 import ActivityKit
 import SwiftUI
 import UIKit
@@ -77,9 +75,9 @@ enum ImageCompressor {
         format.scale = 1.0
         format.opaque = true
 
-        let sizes: [CGFloat] = [96, 80, 64, 48]
-        let qualities: [CGFloat] = [0.75, 0.6, 0.45, 0.35, 0.25, 0.15]
-        let maxBytes = 2000
+        let sizes: [CGFloat] = [64, 56, 48, 36]
+        let qualities: [CGFloat] = [0.6, 0.5, 0.4, 0.3, 0.2, 0.12]
+        let maxBytes = 1450
 
         for side in sizes {
             let targetSize = CGSize(width: side, height: side)
@@ -98,37 +96,18 @@ enum ImageCompressor {
             }
 
             for q in qualities {
-                if let heic = encodeHEIC(resized, quality: q), heic.count <= maxBytes {
-                    return heic
+                if let data = resized.jpegData(compressionQuality: q), data.count <= maxBytes {
+                    return data
                 }
             }
         }
 
-        // Dự phòng nén JPEG nếu thiết bị không hỗ trợ HEIC
-        let fallbackSize = CGSize(width: 48, height: 48)
+        let fallbackSize = CGSize(width: 32, height: 32)
         let renderer = UIGraphicsImageRenderer(size: fallbackSize, format: format)
-        let fallbackImg = renderer.image { _ in
+        let tiny = renderer.image { _ in
             uiImage.draw(in: CGRect(origin: .zero, size: fallbackSize))
         }
-        return fallbackImg.jpegData(compressionQuality: 0.35)
-    }
-
-    private static func encodeHEIC(_ image: UIImage, quality: CGFloat) -> Data? {
-        guard let cgImage = image.cgImage else { return nil }
-        let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(
-            data,
-            UTType.heic.identifier as CFString,
-            1,
-            nil
-        ) else { return nil }
-
-        let options: [CFString: Any] = [
-            kCGImageDestinationLossyCompressionQuality: quality
-        ]
-        CGImageDestinationAddImage(destination, cgImage, options as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else { return nil }
-        return data as Data
+        return tiny.jpegData(compressionQuality: 0.15)
     }
 }
 
