@@ -18,16 +18,18 @@ struct ContentView: View {
     @State private var customImageData: Data? = nil
     @State private var compressedImageSide: Int = 0
     @State private var lastPayloadBytes: Int = 0
+    @State private var isPayloadOverLimit: Bool = false
+    @State private var isUltraSharpMode: Bool = true
     @State private var photoIsCircle: Bool = true
 
     @State private var iconColor: Color = Color(hex: "00FF9C")
     @State private var textColor: Color = Color(hex: "00E5FF")
-    @State private var keylineColor: Color = Color(hex: "00E5FF")
+    @State private var keylineColor: Color = Color(hex: "38BDF8")
     @State private var useKeyline: Bool = true
 
-    @State private var bgStyle: IslandBackgroundStyle = .gradient
-    @State private var bgColor: Color = Color(hex: "0B132B")
-    @State private var bgColor2: Color = Color(hex: "1C2541")
+    @State private var bgStyle: IslandBackgroundStyle = .glass
+    @State private var bgColor: Color = Color(hex: "0EA5E9")
+    @State private var bgColor2: Color = Color(hex: "7C3AED")
 
     @State private var cityName: String = "Hanoi"
     @State private var weatherInfo: String = "26°C"
@@ -41,17 +43,20 @@ struct ContentView: View {
     @State private var isCharging: Bool = false
 
     @State private var counterValue: Int = 0
-    @State private var showCounter: Bool = true
+    @State private var showCounter: Bool = false
 
     @State private var showTodos: Bool = false
     @State private var todos: [TodoItem] = MyIslandAttributes.ContentState.defaultTodos
 
-    @State private var showLauncher: Bool = true
+    @State private var showLauncher: Bool = false
     @State private var shortcuts: [QuickShortcut] = MyIslandAttributes.ContentState.defaultShortcuts
 
     @State private var customPresets: [IslandPreset] = []
     @State private var showingSavePresetAlert: Bool = false
     @State private var newPresetName: String = ""
+
+    @State private var showingOverloadAlert: Bool = false
+    @State private var overloadAlertMessage: String = ""
 
     @State private var previewExpanded: Bool = false
     @State private var statusMessage: String = ""
@@ -107,6 +112,12 @@ struct ContentView: View {
 
     var allPresets: [IslandPreset] {
         IslandPreset.builtInPresets + customPresets
+    }
+
+    var payloadMeterColor: Color {
+        if isPayloadOverLimit { return .red }
+        if lastPayloadBytes >= 3650 { return .orange }
+        return .green
     }
 
     var body: some View {
@@ -295,7 +306,11 @@ struct ContentView: View {
                     Section(
                         header: Text("Biểu tượng (Icon / Emoji / Ảnh từ máy)"),
                         footer: iconSource == .photo
-                            ? Text("Mẹo: Tắt Checklist hoặc Phím tắt App sẽ tự động tăng thêm dung lượng để ảnh trên Đảo động nét tối đa (lên tới 112×112 px).")
+                            ? Text(
+                                showLauncher
+                                    ? "Chế độ Tiêu chuẩn (đang bật Phím tắt nhanh). Tắt Phím tắt App để tự mở khóa ảnh Siêu nét 96×96 – 112×112 px."
+                                    : "Chế độ Siêu nét đang bật — toàn bộ dung lượng trống đã dồn cho ảnh."
+                            )
                             : nil
                     ) {
                         Picker("Loại biểu tượng", selection: $iconSource) {
@@ -367,8 +382,9 @@ struct ContentView: View {
                                             .font(.subheadline.bold())
                                             .foregroundColor(.cyan)
                                         if let data = customImageData {
-                                            let resText = compressedImageSide > 0 ? "\(compressedImageSide)×\(compressedImageSide)px • " : ""
-                                            Text("\(resText)\(data.count) B (Gói \(lastPayloadBytes)/4096 B)")
+                                            let badge = isUltraSharpMode ? "Siêu nét" : "Tiêu chuẩn"
+                                            let resText = compressedImageSide > 0 ? "\(compressedImageSide)×\(compressedImageSide)px" : ""
+                                            Text("\(badge) • \(resText) • \(data.count) B")
                                                 .font(.caption2)
                                                 .foregroundColor(.secondary)
                                         } else {
@@ -390,7 +406,10 @@ struct ContentView: View {
                     }
 
                     // Nền & Màu sắc
-                    Section(header: Text("Nền hiển thị (Màn hình khóa & Thẻ mở rộng)")) {
+                    Section(
+                        header: Text("Nền Đảo mở rộng & Màn hình khóa"),
+                        footer: Text("Mẹo: Chọn Liquid Glass kết hợp 2 màu sáng (VD: Xanh dương + Tím) để tấm kính trong Đảo mở rộng lên màu rõ nhất.")
+                    ) {
                         Picker("Kiểu nền", selection: $bgStyle) {
                             ForEach(IslandBackgroundStyle.allCases, id: \.self) { st in
                                 Text(st.rawValue).tag(st)
@@ -399,8 +418,12 @@ struct ContentView: View {
                         .pickerStyle(.segmented)
 
                         ColorPicker("Màu nền chính", selection: $bgColor, supportsOpacity: false)
-                        if bgStyle == .gradient {
-                            ColorPicker("Màu nền thứ 2 (Gradient)", selection: $bgColor2, supportsOpacity: false)
+                        if bgStyle == .gradient || bgStyle == .glass {
+                            ColorPicker(
+                                bgStyle == .glass ? "Màu pha Liquid Glass 2" : "Màu nền thứ 2 (Gradient)",
+                                selection: $bgColor2,
+                                supportsOpacity: false
+                            )
                         }
                     }
 
@@ -413,10 +436,10 @@ struct ContentView: View {
                         }
                     }
 
-                    // Mini To-Do Checklist (Chỉ gửi sang Đảo khi bật để nhường dung lượng cho ảnh)
+                    // Mini To-Do Checklist
                     Section(
                         header: Text("Checklist 3 việc cần làm (Tương tác trên Đảo)"),
-                        footer: Text(showTodos ? "Đang bật Checklist (tốn thêm ~220 bytes dung lượng Đảo)." : "Đang tắt Checklist — đã giải phóng tối đa dung lượng cho ảnh sắc nét.")
+                        footer: Text(showTodos ? "Đang bật Checklist (tốn thêm ~220 B dung lượng Đảo)." : "Đang tắt Checklist — đã giải phóng dung lượng cho ảnh.")
                     ) {
                         Toggle("Hiện Checklist trên Đảo", isOn: $showTodos)
                         if showTodos {
@@ -448,7 +471,14 @@ struct ContentView: View {
                     }
 
                     // Bộ đếm & Bệ phóng App
-                    Section(header: Text("Bộ đếm & Bệ phóng mở nhanh App")) {
+                    Section(
+                        header: Text("Bộ đếm & Bệ phóng mở nhanh App"),
+                        footer: Text(
+                            showLauncher
+                                ? "Đang bật Phím tắt App (ảnh tự giữ mức Tiêu chuẩn để không vượt 4KB)."
+                                : "Đang tắt Phím tắt App — ảnh tự mở khóa chế độ Siêu nét tối đa."
+                        )
+                    ) {
                         Toggle("Hiện bộ đếm (+ / -) trên Đảo", isOn: $showCounter)
                         if showCounter {
                             Stepper("Giá trị ban đầu: \(counterValue)", value: $counterValue, in: 0...999)
@@ -480,22 +510,53 @@ struct ContentView: View {
                         }
                     }
 
+                    // Thanh theo dõi dung lượng 4KB trực tiếp
+                    Section(header: Text("Dung lượng gói tin Live Activity (Giới hạn 4KB)")) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text(isPayloadOverLimit ? "QUÁ TẢI — Sẽ lỗi Đảo động!" : "Mức an toàn")
+                                    .font(.caption.bold())
+                                    .foregroundColor(payloadMeterColor)
+                                Spacer()
+                                Text("\(lastPayloadBytes) / \(MyIslandAttributes.ContentState.hardPayloadLimit) B")
+                                    .font(.caption.monospacedDigit().bold())
+                                    .foregroundColor(payloadMeterColor)
+                            }
+
+                            ProgressView(
+                                value: Double(min(lastPayloadBytes, MyIslandAttributes.ContentState.hardPayloadLimit)),
+                                total: Double(MyIslandAttributes.ContentState.hardPayloadLimit)
+                            )
+                            .tint(payloadMeterColor)
+
+                            if isPayloadOverLimit {
+                                Text("Hãy rút ngắn tiêu đề/Checklist hoặc tắt bớt Phím tắt App để giảm dưới \(MyIslandAttributes.ContentState.safePayloadLimit) B.")
+                                    .font(.caption2)
+                                    .foregroundColor(.red)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+
                     // Nút điều khiển chính
                     Section {
                         Button(action: {
                             refreshLocalBattery()
-                            recompressPhotoForCurrentBudget()
+                            recalculatePayloadAndPhoto()
                             saveLastConfig()
                             Task { await startOrUpdateActivity() }
                         }) {
                             HStack {
                                 Spacer()
-                                Label("Bật / Cập nhật Dynamic Island", systemImage: "sparkles")
-                                    .font(.headline)
+                                Label(
+                                    isPayloadOverLimit ? "Quá tải 4KB — Cần giảm bớt nội dung" : "Bật / Cập nhật Dynamic Island",
+                                    systemImage: isPayloadOverLimit ? "exclamationmark.triangle.fill" : "sparkles"
+                                )
+                                .font(.headline)
                                 Spacer()
                             }
                         }
-                        .foregroundColor(.green)
+                        .foregroundColor(isPayloadOverLimit ? .orange : .green)
 
                         Button(role: .destructive, action: {
                             Task { await stopAllActivities() }
@@ -523,19 +584,15 @@ struct ContentView: View {
             .onAppear {
                 loadSavedData()
                 refreshLocalBattery()
-                recompressPhotoForCurrentBudget()
+                recalculatePayloadAndPhoto()
             }
-            .onChange(of: showTodos) { _ in
-                recompressPhotoForCurrentBudget()
-            }
-            .onChange(of: showLauncher) { _ in
-                recompressPhotoForCurrentBudget()
-            }
-            .onChange(of: iconSource) { newSource in
-                if newSource == .photo {
-                    recompressPhotoForCurrentBudget()
-                }
-            }
+            .onChange(of: showTodos) { _ in recalculatePayloadAndPhoto() }
+            .onChange(of: showLauncher) { _ in recalculatePayloadAndPhoto() }
+            .onChange(of: showCounter) { _ in recalculatePayloadAndPhoto() }
+            .onChange(of: iconSource) { _ in recalculatePayloadAndPhoto() }
+            .onChange(of: expandedTitle) { _ in recalculatePayloadAndPhoto() }
+            .onChange(of: expandedSubtitle) { _ in recalculatePayloadAndPhoto() }
+            .onChange(of: compactText) { _ in recalculatePayloadAndPhoto() }
             .onChange(of: selectedPhotoItem) { newItem in
                 guard let newItem else { return }
                 Task {
@@ -552,9 +609,10 @@ struct ContentView: View {
                                 masterImageData = master
                                 UserDefaults.standard.set(master, forKey: masterImageKey)
                                 iconSource = .photo
-                                recompressPhotoForCurrentBudget()
+                                recalculatePayloadAndPhoto()
                                 saveLastConfig()
-                                statusMessage = "Đã nạp ảnh nét tối đa (\(compressedImageSide)×\(compressedImageSide)px, \(customImageData?.count ?? 0) B). Bấm Cập nhật để đẩy lên Đảo!"
+                                let modeLabel = isUltraSharpMode ? "Siêu nét" : "Tiêu chuẩn"
+                                statusMessage = "Đã nạp ảnh \(modeLabel) (\(compressedImageSide)×\(compressedImageSide)px • \(customImageData?.count ?? 0) B). Bấm Cập nhật để đẩy lên Đảo!"
                             }
                         } else {
                             await MainActor.run {
@@ -575,15 +633,23 @@ struct ContentView: View {
                     saveCurrentAsPreset()
                 }
             }
+            .alert("Cảnh báo quá tải 4KB", isPresented: $showingOverloadAlert) {
+                Button("Đã hiểu", role: .cancel) {}
+            } message: {
+                Text(overloadAlertMessage)
+            }
         }
     }
 
-    func recompressPhotoForCurrentBudget() {
-        guard iconSource == .photo, (masterImageData ?? customImageData) != nil else { return }
+    func recalculatePayloadAndPhoto() {
         let result = currentPreviewState.optimizedForLiveActivity(masterImageData: masterImageData)
-        customImageData = result.state.customImageData
-        compressedImageSide = result.imageSide
+        if iconSource == .photo {
+            customImageData = result.state.customImageData
+            compressedImageSide = result.imageSide
+        }
         lastPayloadBytes = result.payloadBytes
+        isPayloadOverLimit = result.isOverLimit
+        isUltraSharpMode = result.isUltraSharpMode
     }
 
     func refreshLocalBattery() {
@@ -633,7 +699,7 @@ struct ContentView: View {
         countdownMinutes = preset.countdownMinutes
         countdownSeconds = preset.countdownSeconds
         cityName = preset.cityName
-        recompressPhotoForCurrentBudget()
+        recalculatePayloadAndPhoto()
         saveLastConfig()
         statusMessage = "Đã nạp Preset '\(preset.name)'. Bấm Cập nhật để đẩy lên Đảo!"
     }
@@ -708,11 +774,24 @@ struct ContentView: View {
                 compressedImageSide = optimized.imageSide
             }
             lastPayloadBytes = optimized.payloadBytes
+            isPayloadOverLimit = optimized.isOverLimit
+            isUltraSharpMode = optimized.isUltraSharpMode
+        }
+
+        // Chặn đẩy lên Đảo nếu quá ngưỡng an toàn để tránh lỗi khung xám
+        if optimized.isOverLimit {
+            await MainActor.run {
+                overloadAlertMessage = "Tổng dữ liệu hiện tại là \(optimized.payloadBytes) / \(MyIslandAttributes.ContentState.hardPayloadLimit) bytes (vượt ngưỡng an toàn \(MyIslandAttributes.ContentState.safePayloadLimit) bytes).\n\nApp đã tạm chặn cập nhật để tránh lỗi khung xám trên Dynamic Island. Bạn hãy tắt bớt Checklist/Phím tắt App hoặc rút ngắn nội dung chữ rồi thử lại."
+                showingOverloadAlert = true
+                statusMessage = "Đã chặn cập nhật do quá tải (\(optimized.payloadBytes)/4096 B)."
+            }
+            return
         }
 
         let content = ActivityContent(state: optimized.state, staleDate: nil)
+        let modeLabel = optimized.isUltraSharpMode ? "Siêu nét" : "Tiêu chuẩn"
         let summarySuffix = iconSource == .photo && optimized.imageSide > 0
-            ? " (Ảnh \(optimized.imageSide)×\(optimized.imageSide)px • \(optimized.imageBytes) B • Gói \(optimized.payloadBytes)/4096 B)"
+            ? " (\(modeLabel) \(optimized.imageSide)×\(optimized.imageSide)px • \(optimized.imageBytes) B • Gói \(optimized.payloadBytes)/4096 B)"
             : " (Gói \(optimized.payloadBytes)/4096 B)"
 
         if let existingActivity = Activity<MyIslandAttributes>.activities.first {
@@ -795,6 +874,7 @@ struct ContentView: View {
                 expandedTitle = "\(place.name): \(temp)°C"
                 isLoadingWeather = false
                 weatherStatus = "Đã cập nhật \(place.name): \(temp)°C"
+                recalculatePayloadAndPhoto()
                 saveLastConfig()
             }
 
@@ -818,15 +898,31 @@ struct IslandLivePreviewHeader: View {
     var body: some View {
         let iconColor = Color(hex: state.iconColorHex)
         let textColor = Color(hex: state.textColorHex)
-        let borderColor = state.useKeyline ? Color(hex: state.keylineColorHex) : Color.white.opacity(0.15)
+        let borderColor = state.useKeyline
+            ? Color(hex: state.keylineColorHex)
+            : Color(hex: state.bgColorHex).opacity(0.8)
 
         VStack(spacing: 6) {
             Group {
                 if isExpanded {
                     VStack(spacing: 8) {
                         HStack {
-                            previewIcon(size: 30, color: iconColor)
+                            previewIcon(size: 28, color: iconColor)
+                                .padding(4)
+                                .background(previewOuterPill)
                             Spacer()
+                            HStack(spacing: 5) {
+                                previewMetric(color: textColor, compact: false)
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .font(.caption2)
+                                    .foregroundColor(.white.opacity(0.85))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(previewOuterPill)
+                        }
+
+                        VStack(spacing: 7) {
                             VStack(spacing: 2) {
                                 Text(state.expandedTitle.isEmpty ? "Hoàng Linh's Island Studio" : state.expandedTitle)
                                     .font(.system(.subheadline, design: state.fontStyle.design).bold())
@@ -834,95 +930,97 @@ struct IslandLivePreviewHeader: View {
                                     .lineLimit(1)
                                 Text(state.expandedSubtitle)
                                     .font(.system(.caption2, design: state.fontStyle.design))
-                                    .foregroundColor(.gray)
+                                    .foregroundColor(.white.opacity(0.82))
                                     .lineLimit(1)
                             }
-                            Spacer()
-                            previewMetric(color: textColor, compact: false)
-                        }
+                            .frame(maxWidth: .infinity)
 
-                        if state.mode == .countdown {
-                            Capsule()
-                                .fill(iconColor.opacity(0.3))
-                                .frame(height: 5)
-                                .overlay(alignment: .leading) {
-                                    Capsule()
-                                        .fill(iconColor)
-                                        .frame(width: 140, height: 5)
-                                }
-                        }
-
-                        if state.showTodos {
-                            let activeTodos = state.todos.filter { !$0.title.trimmingCharacters(in: .whitespaces).isEmpty }
-                            if !activeTodos.isEmpty {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    ForEach(activeTodos.prefix(3)) { todo in
-                                        HStack(spacing: 6) {
-                                            Image(systemName: todo.isDone ? "checkmark.circle.fill" : "circle")
-                                                .font(.caption2)
-                                                .foregroundColor(todo.isDone ? iconColor : .gray)
-                                            Text(todo.title)
-                                                .font(.system(.caption2, design: state.fontStyle.design))
-                                                .strikethrough(todo.isDone)
-                                                .foregroundColor(todo.isDone ? .gray : .white)
-                                                .lineLimit(1)
-                                            Spacer()
-                                        }
+                            if state.mode == .countdown {
+                                Capsule()
+                                    .fill(iconColor.opacity(0.3))
+                                    .frame(height: 5)
+                                    .overlay(alignment: .leading) {
+                                        Capsule()
+                                            .fill(iconColor)
+                                            .frame(width: 140, height: 5)
                                     }
-                                }
-                                .padding(6)
-                                .background(previewCardBg.opacity(0.65))
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
                             }
-                        }
 
-                        if state.showCounter || state.showLauncher {
-                            HStack(spacing: 6) {
-                                if state.showCounter {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "minus.circle.fill").foregroundColor(.gray)
-                                        Text("\(state.counter)")
-                                            .font(.system(.caption, design: .monospaced).bold())
-                                            .foregroundColor(textColor)
-                                        Image(systemName: "plus.circle.fill").foregroundColor(iconColor)
-                                    }
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(previewCardBg.opacity(0.75))
-                                    .clipShape(Capsule())
-                                }
-
-                                if state.showLauncher {
-                                    HStack(spacing: 5) {
-                                        ForEach(state.shortcuts.prefix(4)) { item in
-                                            VStack(spacing: 2) {
-                                                Image(systemName: item.icon)
+                            if state.showTodos {
+                                let activeTodos = state.todos.filter { !$0.title.trimmingCharacters(in: .whitespaces).isEmpty }
+                                if !activeTodos.isEmpty {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        ForEach(activeTodos.prefix(3)) { todo in
+                                            HStack(spacing: 6) {
+                                                Image(systemName: todo.isDone ? "checkmark.circle.fill" : "circle")
                                                     .font(.caption2)
-                                                    .foregroundColor(iconColor)
-                                                Text(item.name)
-                                                    .font(.system(size: 8))
-                                                    .foregroundColor(.white.opacity(0.8))
+                                                    .foregroundColor(todo.isDone ? iconColor : .white.opacity(0.75))
+                                                Text(todo.title)
+                                                    .font(.system(.caption2, design: state.fontStyle.design))
+                                                    .strikethrough(todo.isDone)
+                                                    .foregroundColor(todo.isDone ? .white.opacity(0.45) : .white)
                                                     .lineLimit(1)
+                                                Spacer()
                                             }
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 4)
-                                            .background(previewCardBg.opacity(0.75))
-                                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                                        }
+                                    }
+                                    .padding(6)
+                                    .background(Color.white.opacity(0.12))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                }
+                            }
+
+                            if state.showCounter || state.showLauncher {
+                                HStack(spacing: 6) {
+                                    if state.showCounter {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "minus.circle.fill").foregroundColor(.white.opacity(0.75))
+                                            Text("\(state.counter)")
+                                                .font(.system(.caption, design: .monospaced).bold())
+                                                .foregroundColor(textColor)
+                                            Image(systemName: "plus.circle.fill").foregroundColor(iconColor)
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.white.opacity(0.14))
+                                        .clipShape(Capsule())
+                                    }
+
+                                    if state.showLauncher {
+                                        HStack(spacing: 5) {
+                                            ForEach(state.shortcuts.prefix(4)) { item in
+                                                VStack(spacing: 2) {
+                                                    Image(systemName: item.icon)
+                                                        .font(.caption2)
+                                                        .foregroundColor(iconColor)
+                                                    Text(item.name)
+                                                        .font(.system(size: 8))
+                                                        .foregroundColor(.white.opacity(0.92))
+                                                        .lineLimit(1)
+                                                }
+                                                .frame(maxWidth: .infinity)
+                                                .padding(.vertical, 4)
+                                                .background(Color.white.opacity(0.14))
+                                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(previewPanelBackground)
                     }
-                    .padding(14)
+                    .padding(12)
                     .frame(maxWidth: 340)
                     .background(Color.black)
-                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        RoundedRectangle(cornerRadius: 30, style: .continuous)
                             .stroke(borderColor, lineWidth: state.useKeyline ? 1.5 : 1)
                     )
-                    .shadow(color: state.useKeyline ? borderColor.opacity(0.45) : .clear, radius: 10)
+                    .shadow(color: borderColor.opacity(0.45), radius: 10)
                 } else {
                     HStack {
                         previewIcon(size: 20, color: iconColor)
@@ -941,7 +1039,7 @@ struct IslandLivePreviewHeader: View {
                         Capsule()
                             .stroke(borderColor, lineWidth: state.useKeyline ? 1.5 : 1)
                     )
-                    .shadow(color: state.useKeyline ? borderColor.opacity(0.5) : .clear, radius: 8)
+                    .shadow(color: borderColor.opacity(0.5), radius: 8)
                 }
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isExpanded)
@@ -949,7 +1047,7 @@ struct IslandLivePreviewHeader: View {
                 isExpanded.toggle()
             }
 
-            Text(isExpanded ? "Chạm vào Đảo để thu gọn preview" : "Chạm vào Đảo để xem trước khi mở rộng")
+            Text(isExpanded ? "Chạm vào Đảo để thu gọn preview" : "Chạm vào Đảo để xem trước Liquid Glass mở rộng")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
@@ -959,18 +1057,45 @@ struct IslandLivePreviewHeader: View {
     }
 
     @ViewBuilder
-    var previewCardBg: some View {
+    var previewOuterPill: some View {
+        let c1 = Color(hex: state.bgColorHex)
+        let c2 = Color(hex: state.bgColor2Hex)
+        switch state.bgStyle {
+        case .glass:
+            Capsule()
+                .fill(LinearGradient(colors: [c1.opacity(0.48), c2.opacity(0.30)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .overlay(
+                    Capsule().strokeBorder(
+                        LinearGradient(colors: [.white.opacity(0.72), .white.opacity(0.14), .white.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                        lineWidth: 0.85
+                    )
+                )
+        case .solid:
+            Capsule().fill(c1.opacity(0.92))
+        case .gradient:
+            Capsule().fill(LinearGradient(colors: [c1, c2], startPoint: .topLeading, endPoint: .bottomTrailing))
+        }
+    }
+
+    @ViewBuilder
+    var previewPanelBackground: some View {
+        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+        let c1 = Color(hex: state.bgColorHex)
+        let c2 = Color(hex: state.bgColor2Hex)
         switch state.bgStyle {
         case .solid:
-            Color(hex: state.bgColorHex)
+            shape.fill(c1)
         case .gradient:
-            LinearGradient(
-                colors: [Color(hex: state.bgColorHex), Color(hex: state.bgColor2Hex)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            shape.fill(LinearGradient(colors: [c1, c2], startPoint: .topLeading, endPoint: .bottomTrailing))
         case .glass:
-            Color(hex: state.bgColorHex).opacity(0.35)
+            ZStack {
+                shape.fill(LinearGradient(colors: [c1.opacity(0.54), c2.opacity(0.34)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                shape.fill(LinearGradient(colors: [.white.opacity(0.30), .white.opacity(0.06), .clear, c2.opacity(0.20)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                shape.strokeBorder(
+                    LinearGradient(colors: [.white.opacity(0.78), c1.opacity(0.55), .white.opacity(0.10), .white.opacity(0.48)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                    lineWidth: 1.0
+                )
+            }
         }
     }
 

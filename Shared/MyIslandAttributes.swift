@@ -42,7 +42,7 @@ enum IslandIconSource: String, Codable, CaseIterable, Hashable {
 enum IslandBackgroundStyle: String, Codable, CaseIterable, Hashable {
     case solid = "Màu đơn"
     case gradient = "Gradient"
-    case glass = "Kính mờ"
+    case glass = "Liquid Glass"
 }
 
 struct QuickShortcut: Codable, Hashable, Identifiable {
@@ -83,28 +83,32 @@ enum BatteryHelper {
 }
 
 enum ImageCompressor {
-    /// Tạo bản ảnh gốc 240x240 sắc nét để lưu trong app, dùng nén lại tự động khi thay đổi Checklist/Phím tắt
+    /// Tạo bản ảnh gốc 256x256 sắc nét để lưu trong máy, tự nén lại theo hạn mức khi bật/tắt phím tắt
     static func prepareMasterImage(_ uiImage: UIImage) -> Data? {
-        let resized = renderSquare(uiImage, side: 240)
-        return resized.jpegData(compressionQuality: 0.88)
+        let resized = renderSquare(uiImage, side: 256)
+        return resized.jpegData(compressionQuality: 0.90)
     }
 
-    /// Nén ảnh tối đa độ nét (ưu tiên 112px/96px chất lượng cao, loại bỏ ICC Display P3 để tiết kiệm ~500B)
-    static func compressForIsland(_ uiImage: UIImage, maxBytes: Int) -> (data: Data, side: Int)? {
-        let ladders: [(side: CGFloat, qualities: [CGFloat])] = [
-            (112, [0.85, 0.78, 0.70, 0.62, 0.55]),
-            (96,  [0.85, 0.78, 0.70, 0.62, 0.55, 0.48]),
-            (80,  [0.82, 0.74, 0.65, 0.56, 0.46]),
-            (64,  [0.78, 0.68, 0.58, 0.48, 0.38, 0.28]),
-            (48,  [0.65, 0.50, 0.35, 0.22, 0.14])
-        ]
+    /// Tìm kiếm nhị phân chất lượng JPEG cao nhất khớp sát maxBytes, ưu tiên 96px/112px siêu nét
+    static func compressForIsland(_ uiImage: UIImage, maxBytes: Int, preferUltraSharp: Bool) -> (data: Data, side: Int)? {
+        let ladders: [(side: CGFloat, minQ: CGFloat, maxQ: CGFloat)] = preferUltraSharp
+            ? [
+                (112, 0.50, 0.92),
+                (96,  0.40, 0.92),
+                (80,  0.35, 0.88),
+                (64,  0.24, 0.85),
+                (48,  0.14, 0.78)
+            ]
+            : [
+                (80,  0.42, 0.88),
+                (64,  0.26, 0.86),
+                (48,  0.14, 0.78)
+            ]
 
         for step in ladders {
             let resized = renderSquare(uiImage, side: step.side)
-            for q in step.qualities {
-                if let data = resized.jpegData(compressionQuality: q), data.count <= maxBytes {
-                    return (data, Int(step.side))
-                }
+            if let data = bestJPEG(for: resized, maxBytes: maxBytes, minQuality: step.minQ, maxQuality: step.maxQ) {
+                return (data, Int(step.side))
             }
         }
 
@@ -115,8 +119,26 @@ enum ImageCompressor {
         return nil
     }
 
-    static func compressForIsland(_ uiImage: UIImage) -> Data? {
-        compressForIsland(uiImage, maxBytes: 1800)?.data
+    private static func bestJPEG(for image: UIImage, maxBytes: Int, minQuality: CGFloat, maxQuality: CGFloat) -> Data? {
+        guard let lowest = image.jpegData(compressionQuality: minQuality), lowest.count <= maxBytes else {
+            return nil
+        }
+        if let highest = image.jpegData(compressionQuality: maxQuality), highest.count <= maxBytes {
+            return highest
+        }
+        var lo = minQuality
+        var hi = maxQuality
+        var best = lowest
+        for _ in 0..<6 {
+            let mid = (lo + hi) / 2
+            if let candidate = image.jpegData(compressionQuality: mid), candidate.count <= maxBytes {
+                best = candidate
+                lo = mid
+            } else {
+                hi = mid
+            }
+        }
+        return best
     }
 
     private static func renderSquare(_ uiImage: UIImage, side: CGFloat) -> UIImage {
@@ -145,6 +167,9 @@ enum ImageCompressor {
 
 struct MyIslandAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
+        static let safePayloadLimit = 3880
+        static let hardPayloadLimit = 4096
+
         var compactText: String
         var expandedTitle: String
         var expandedSubtitle: String
@@ -221,8 +246,15 @@ struct MyIslandAttributes: ActivityAttributes {
             return countdownStart...safeEnd
         }
 
-        /// Tự động cắt dữ liệu các mục đang tắt và phân bổ toàn bộ dung lượng trống cho ảnh sắc nét nhất
-        func optimizedForLiveActivity(masterImageData: Data?) -> (state: ContentState, payloadBytes: Int, imageBytes: Int, imageSide: Int) {
+        /// Tự động phân bổ 2 chế độ độ nét (có phím tắt vs không phím tắt) và kiểm tra cảnh báo quá tải 4KB
+        func optimizedForLiveActivity(masterImageData: Data?) -> (
+            state: ContentState,
+            payloadBytes: Int,
+            imageBytes: Int,
+            imageSide: Int,
+            isOverLimit: Bool,
+            isUltraSharpMode: Bool
+        ) {
             var slim = self
 
             if !slim.showTodos {
@@ -252,8 +284,6 @@ struct MyIslandAttributes: ActivityAttributes {
                     }
             }
 
-            if slim.mode != .text { slim.compactText = "" }
-            if slim.mode != .weather { slim.weatherInfo = "" }
             if slim.iconSource != .symbol { slim.iconName = "" }
             if slim.iconSource != .emoji { slim.emojiText = "" }
 
@@ -261,26 +291,33 @@ struct MyIslandAttributes: ActivityAttributes {
             let encoder = JSONEncoder()
             let baseBytes = (try? encoder.encode(slim).count) ?? 650
 
+            let ultraSharpMode = !slim.showLauncher
             var finalImageBytes = 0
             var finalImageSide = 0
 
             if slim.iconSource == .photo {
-                // Giữ trần tổng JSON ở 3,600 bytes (dư ~500 bytes an toàn dưới ngưỡng 4,096 bytes của iOS)
-                let targetTotalJSON = 3600
-                let availableBase64 = max(800, targetTotalJSON - baseBytes)
-                let maxRawImageBytes = max(600, (availableBase64 * 3) / 4 - 16)
-
-                if let sourceData = masterImageData ?? self.customImageData,
-                   let uiImage = UIImage(data: sourceData),
-                   let compressed = ImageCompressor.compressForIsland(uiImage, maxBytes: maxRawImageBytes) {
-                    slim.customImageData = compressed.data
-                    finalImageBytes = compressed.data.count
-                    finalImageSide = compressed.side
+                // Tắt phím tắt: đẩy trần lên 3,820 B cho ảnh siêu nét (96-112px). Bật phím tắt: giữ trần 3,550 B an toàn.
+                let targetTotalJSON = ultraSharpMode ? 3820 : 3550
+                let availableBase64 = targetTotalJSON - baseBytes
+                if availableBase64 >= 650 {
+                    let maxRawImageBytes = max(450, (availableBase64 * 3) / 4 - 16)
+                    if let sourceData = masterImageData ?? self.customImageData,
+                       let uiImage = UIImage(data: sourceData),
+                       let compressed = ImageCompressor.compressForIsland(
+                        uiImage,
+                        maxBytes: maxRawImageBytes,
+                        preferUltraSharp: ultraSharpMode
+                       ) {
+                        slim.customImageData = compressed.data
+                        finalImageBytes = compressed.data.count
+                        finalImageSide = compressed.side
+                    }
                 }
             }
 
             let totalPayload = (try? encoder.encode(slim).count) ?? baseBytes
-            return (slim, totalPayload, finalImageBytes, finalImageSide)
+            let isOverLimit = totalPayload > Self.safePayloadLimit
+            return (slim, totalPayload, finalImageBytes, finalImageSide, isOverLimit, ultraSharpMode)
         }
 
         static let defaultShortcuts: [QuickShortcut] = [
@@ -307,11 +344,11 @@ struct MyIslandAttributes: ActivityAttributes {
             photoIsCircle: true,
             iconColorHex: "00FF9C",
             textColorHex: "00E5FF",
-            keylineColorHex: "00E5FF",
+            keylineColorHex: "38BDF8",
             useKeyline: true,
-            bgStyle: .gradient,
-            bgColorHex: "0B132B",
-            bgColor2Hex: "1C2541",
+            bgStyle: .glass,
+            bgColorHex: "0EA5E9",
+            bgColor2Hex: "7C3AED",
             fontStyle: .monospaced,
             mode: .text,
             weatherInfo: "26°C",
@@ -322,9 +359,9 @@ struct MyIslandAttributes: ActivityAttributes {
             isCharging: false,
             counter: 0,
             showCounter: true,
-            showTodos: true,
+            showTodos: false,
             todos: defaultTodos,
-            showLauncher: true,
+            showLauncher: false,
             shortcuts: defaultShortcuts
         )
     }
@@ -342,7 +379,7 @@ struct IslandPreset: Codable, Identifiable, Equatable {
     static let builtInPresets: [IslandPreset] = [
         IslandPreset(
             id: "builtin-cyber",
-            name: "Cyber Dev",
+            name: "Liquid Cyber",
             state: .default,
             countdownMinutes: 25,
             countdownSeconds: 0,
@@ -365,9 +402,9 @@ struct IslandPreset: Codable, Identifiable, Equatable {
                 textColorHex: "FFD60A",
                 keylineColorHex: "FF5E3A",
                 useKeyline: true,
-                bgStyle: .gradient,
-                bgColorHex: "2B0A0A",
-                bgColor2Hex: "0F0F12",
+                bgStyle: .glass,
+                bgColorHex: "DC2626",
+                bgColor2Hex: "EA580C",
                 fontStyle: .rounded,
                 mode: .countdown,
                 weatherInfo: "26°C",
@@ -404,9 +441,9 @@ struct IslandPreset: Codable, Identifiable, Equatable {
                 textColorHex: "FFFFFF",
                 keylineColorHex: "32D74B",
                 useKeyline: true,
-                bgStyle: .solid,
-                bgColorHex: "0D1F12",
-                bgColor2Hex: "09120C",
+                bgStyle: .glass,
+                bgColorHex: "10B981",
+                bgColor2Hex: "065F46",
                 fontStyle: .rounded,
                 mode: .stopwatch,
                 weatherInfo: "26°C",
@@ -444,8 +481,8 @@ struct IslandPreset: Codable, Identifiable, Equatable {
                 keylineColorHex: "30D158",
                 useKeyline: true,
                 bgStyle: .glass,
-                bgColorHex: "111827",
-                bgColor2Hex: "000000",
+                bgColorHex: "0EA5E9",
+                bgColor2Hex: "10B981",
                 fontStyle: .monospaced,
                 mode: .battery,
                 weatherInfo: "26°C",
@@ -458,7 +495,7 @@ struct IslandPreset: Codable, Identifiable, Equatable {
                 showCounter: false,
                 showTodos: false,
                 todos: MyIslandAttributes.ContentState.defaultTodos,
-                showLauncher: true,
+                showLauncher: false,
                 shortcuts: MyIslandAttributes.ContentState.defaultShortcuts
             ),
             countdownMinutes: 10,
