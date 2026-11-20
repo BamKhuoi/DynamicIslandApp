@@ -908,8 +908,8 @@ struct IslandLivePreviewHeader: View {
                     VStack(spacing: 8) {
                         HStack {
                             previewIcon(size: 28, color: iconColor)
-                                .padding(4)
-                                .background(previewOuterPill)
+                                .padding(3)
+                                .background(previewLeadingBackground)
                             Spacer()
                             HStack(spacing: 5) {
                                 previewMetric(color: textColor, compact: false)
@@ -1055,7 +1055,31 @@ struct IslandLivePreviewHeader: View {
         .padding(.vertical, 12)
         .background(Color(UIColor.systemGroupedBackground))
     }
-
+@ViewBuilder
+    var previewLeadingBackground: some View {
+        if state.iconSource == .photo && !state.photoIsCircle {
+            let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+            let c1 = Color(hex: state.bgColorHex)
+            let c2 = Color(hex: state.bgColor2Hex)
+            switch state.bgStyle {
+            case .glass:
+                shape
+                    .fill(LinearGradient(colors: [c1.opacity(0.48), c2.opacity(0.30)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .overlay(
+                        shape.strokeBorder(
+                            LinearGradient(colors: [.white.opacity(0.72), .white.opacity(0.14), .white.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                            lineWidth: 0.85
+                        )
+                    )
+            case .solid:
+                shape.fill(c1.opacity(0.92))
+            case .gradient:
+                shape.fill(LinearGradient(colors: [c1, c2], startPoint: .topLeading, endPoint: .bottomTrailing))
+            }
+        } else {
+            previewOuterPill
+        }
+    }
     @ViewBuilder
     var previewOuterPill: some View {
         let c1 = Color(hex: state.bgColorHex)

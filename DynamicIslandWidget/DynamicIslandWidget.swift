@@ -188,10 +188,9 @@ struct IslandBackgroundFill: View {
     }
 }
 
-/// Tấm nền màu nguyên khối cho phần mở rộng Đảo động (Hỗ trợ Liquid Glass 2 màu, Gradient, Màu đơn)
 struct ExpandedGlassPanelSurface: View {
     let state: MyIslandAttributes.ContentState
-    let cornerRadius: CGFloat = 22
+    var cornerRadius: CGFloat = 20
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -217,7 +216,6 @@ struct ExpandedGlassPanelSurface: View {
             }
         case .glass:
             ZStack {
-                // Lớp nền kính màu 2 tông nổi bật trên vỏ đen của Đảo
                 shape.fill(
                     LinearGradient(
                         colors: [c1.opacity(0.54), c2.opacity(0.34)],
@@ -226,7 +224,6 @@ struct ExpandedGlassPanelSurface: View {
                     )
                 )
 
-                // Quầng sáng lỏng tạo chiều sâu từ góc trên-trái
                 shape.fill(
                     RadialGradient(
                         colors: [Color.white.opacity(0.28), c1.opacity(0.22), .clear],
@@ -236,7 +233,6 @@ struct ExpandedGlassPanelSurface: View {
                     )
                 )
 
-                // Vệt phản chiếu ánh sáng chéo đặc trưng Liquid Glass
                 shape.fill(
                     LinearGradient(
                         colors: [
@@ -250,7 +246,6 @@ struct ExpandedGlassPanelSurface: View {
                     )
                 )
 
-                // Viền khúc xạ kính sáng mảnh 4 điểm
                 shape.strokeBorder(
                     LinearGradient(
                         colors: [
@@ -269,7 +264,6 @@ struct ExpandedGlassPanelSurface: View {
     }
 }
 
-/// Viên kính / thẻ màu nổi cho 2 cụm trái-phải camera và các nút bấm bên trong
 struct IslandCardSurface<S: InsettableShape>: View {
     let state: MyIslandAttributes.ContentState
     let shape: S
@@ -515,15 +509,25 @@ struct DynamicIslandWidgetLiveActivity: Widget {
                 : Color(hex: state.bgColorHex).opacity(0.85)
 
             return DynamicIsland {
-                // Cụm TRÁI camera: Viên màu / Liquid Glass chứa Ảnh hoặc Icon
+                // Cụm TRÁI camera: Khung vuông bo góc đồng tâm khi chọn ảnh vuông, tròn khi chọn Avatar/Icon
                 DynamicIslandExpandedRegion(.leading) {
-                    IslandIconView(state: state, size: 30)
-                        .padding(4)
-                        .background(IslandCardSurface(state: state, shape: Capsule(), isOuterPill: true))
+                    IslandIconView(state: state, size: 28)
+                        .padding(3)
+                        .background {
+                            if state.iconSource == .photo && !state.photoIsCircle {
+                                IslandCardSurface(
+                                    state: state,
+                                    shape: RoundedRectangle(cornerRadius: 10, style: .continuous),
+                                    isOuterPill: true
+                                )
+                            } else {
+                                IslandCardSurface(state: state, shape: Capsule(), isOuterPill: true)
+                            }
+                        }
                         .padding(.leading, 2)
                 }
 
-                // Cụm PHẢI camera: Viên màu / Liquid Glass chứa Chỉ số + Nút đổi chế độ
+                // Cụm PHẢI camera: Gọn chiều cao để nhường tối đa không gian cho phần dưới
                 DynamicIslandExpandedRegion(.trailing) {
                     HStack(spacing: 5) {
                         if state.mode == .stopwatch {
@@ -557,37 +561,58 @@ struct DynamicIslandWidgetLiveActivity: Widget {
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
                     .background(IslandCardSurface(state: state, shape: Capsule(), isOuterPill: true))
                     .padding(.trailing, 2)
                 }
 
-                // Toàn bộ thân Đảo mở rộng: Tấm Liquid Glass / Gradient / Màu đơn nguyên khối
+                // Thân Đảo mở rộng: Tự động co gọn bố cục khi bật Phím tắt App / Checklist để không bị cắt tên
                 DynamicIslandExpandedRegion(.bottom) {
                     let hasTitle = !state.expandedTitle.trimmingCharacters(in: .whitespaces).isEmpty
                     let hasSubtitle = !state.expandedSubtitle.trimmingCharacters(in: .whitespaces).isEmpty
                     let activeTodos = state.showTodos
                         ? state.todos.filter { !$0.title.trimmingCharacters(in: .whitespaces).isEmpty }
                         : []
+                    let hasBottomRow = state.showCounter || (state.showLauncher && !state.shortcuts.isEmpty)
+                    let isDense = hasBottomRow || !activeTodos.isEmpty || state.mode == .countdown
+                    let isUltraDense = hasBottomRow && !activeTodos.isEmpty
 
-                    VStack(spacing: 7) {
+                    VStack(spacing: isDense ? 5 : 7) {
                         if hasTitle || hasSubtitle {
-                            VStack(spacing: 2) {
-                                if hasTitle {
+                            if isUltraDense && hasTitle && hasSubtitle {
+                                // Gộp 1 dòng gọn gàng nếu bật cả Checklist lẫn Phím tắt cùng lúc
+                                HStack(spacing: 5) {
                                     Text(state.expandedTitle)
-                                        .font(.system(.headline, design: state.fontStyle.design).bold())
+                                        .font(.system(.caption, design: state.fontStyle.design).bold())
                                         .foregroundColor(textColor)
                                         .lineLimit(1)
-                                }
-                                if hasSubtitle {
+                                    Text("•")
+                                        .font(.caption2)
+                                        .foregroundColor(.white.opacity(0.5))
                                     Text(state.expandedSubtitle)
-                                        .font(.system(.caption, design: state.fontStyle.design))
+                                        .font(.system(.caption2, design: state.fontStyle.design))
                                         .foregroundColor(.white.opacity(0.82))
                                         .lineLimit(1)
                                 }
+                                .frame(maxWidth: .infinity)
+                            } else {
+                                VStack(spacing: isDense ? 0 : 2) {
+                                    if hasTitle {
+                                        Text(state.expandedTitle)
+                                            .font(.system(isDense ? .subheadline : .headline, design: state.fontStyle.design).bold())
+                                            .foregroundColor(textColor)
+                                            .lineLimit(1)
+                                    }
+                                    if hasSubtitle {
+                                        Text(state.expandedSubtitle)
+                                            .font(.system(isDense ? .caption2 : .caption, design: state.fontStyle.design))
+                                            .foregroundColor(.white.opacity(0.82))
+                                            .lineLimit(1)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity)
                             }
-                            .frame(maxWidth: .infinity)
                         }
 
                         if state.mode == .countdown {
@@ -602,8 +627,8 @@ struct DynamicIslandWidgetLiveActivity: Widget {
                         }
 
                         if !activeTodos.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
-                                ForEach(activeTodos.prefix(3)) { todo in
+                            VStack(alignment: .leading, spacing: 3) {
+                                ForEach(activeTodos.prefix(isUltraDense ? 2 : 3)) { todo in
                                     if #available(iOS 17.0, *) {
                                         Button(intent: ToggleTodoIntent(todoId: todo.id)) {
                                             HStack(spacing: 6) {
@@ -623,41 +648,41 @@ struct DynamicIslandWidgetLiveActivity: Widget {
                                 }
                             }
                             .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
+                            .padding(.vertical, 4)
                             .background(
                                 IslandCardSurface(
                                     state: state,
-                                    shape: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                    shape: RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 )
                             )
                         }
 
-                        if state.showCounter || (state.showLauncher && !state.shortcuts.isEmpty) {
-                            HStack(spacing: 6) {
+                        if hasBottomRow {
+                            HStack(spacing: 5) {
                                 if state.showCounter {
                                     if #available(iOS 17.0, *) {
-                                        HStack(spacing: 6) {
+                                        HStack(spacing: 5) {
                                             Button(intent: CounterIntent(delta: -1)) {
                                                 Image(systemName: "minus.circle.fill")
-                                                    .font(.callout)
+                                                    .font(.caption)
                                                     .foregroundColor(.white.opacity(0.75))
                                             }
                                             .buttonStyle(.plain)
 
                                             Text("\(state.counter)")
-                                                .font(.system(.subheadline, design: .monospaced).bold())
+                                                .font(.system(.caption, design: .monospaced).bold())
                                                 .foregroundColor(textColor)
-                                                .frame(minWidth: 16)
+                                                .frame(minWidth: 14)
 
                                             Button(intent: CounterIntent(delta: 1)) {
                                                 Image(systemName: "plus.circle.fill")
-                                                    .font(.callout)
+                                                    .font(.caption)
                                                     .foregroundColor(iconColor)
                                             }
                                             .buttonStyle(.plain)
                                         }
-                                        .padding(.horizontal, 9)
-                                        .padding(.vertical, 5)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 6)
                                         .background(IslandCardSurface(state: state, shape: Capsule()))
                                     }
                                 }
@@ -669,19 +694,21 @@ struct DynamicIslandWidgetLiveActivity: Widget {
                                                 Link(destination: url) {
                                                     VStack(spacing: 2) {
                                                         Image(systemName: item.icon)
-                                                            .font(.caption)
+                                                            .font(.system(size: 11, weight: .semibold))
                                                             .foregroundColor(iconColor)
                                                         Text(item.name)
-                                                            .font(.system(size: 9))
+                                                            .font(.system(size: 9, weight: .medium))
                                                             .foregroundColor(.white.opacity(0.95))
                                                             .lineLimit(1)
+                                                            .minimumScaleFactor(0.75)
                                                     }
                                                     .frame(maxWidth: .infinity)
-                                                    .padding(.vertical, 5)
+                                                    .padding(.horizontal, 2)
+                                                    .padding(.vertical, 4)
                                                     .background(
                                                         IslandCardSurface(
                                                             state: state,
-                                                            shape: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                                            shape: RoundedRectangle(cornerRadius: 10, style: .continuous)
                                                         )
                                                     )
                                                 }
@@ -692,11 +719,10 @@ struct DynamicIslandWidgetLiveActivity: Widget {
                             }
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, isDense ? 6 : 10)
                     .frame(maxWidth: .infinity)
-                    .background(ExpandedGlassPanelSurface(state: state))
-                    .padding(.top, 2)
+                    .background(ExpandedGlassPanelSurface(state: state, cornerRadius: 18))
                 }
             } compactLeading: {
                 IslandIconView(state: state, size: 20)
