@@ -14,7 +14,10 @@ struct ContentView: View {
     @State private var emojiText: String = "🤓"
     @State private var selectedIcon: String = "terminal.fill"
     @State private var selectedPhotoItem: PhotosPickerItem? = nil
+    @State private var masterImageData: Data? = nil
     @State private var customImageData: Data? = nil
+    @State private var compressedImageSide: Int = 0
+    @State private var lastPayloadBytes: Int = 0
     @State private var photoIsCircle: Bool = true
 
     @State private var iconColor: Color = Color(hex: "00FF9C")
@@ -40,7 +43,7 @@ struct ContentView: View {
     @State private var counterValue: Int = 0
     @State private var showCounter: Bool = true
 
-    @State private var showTodos: Bool = true
+    @State private var showTodos: Bool = false
     @State private var todos: [TodoItem] = MyIslandAttributes.ContentState.defaultTodos
 
     @State private var showLauncher: Bool = true
@@ -53,8 +56,9 @@ struct ContentView: View {
     @State private var previewExpanded: Bool = false
     @State private var statusMessage: String = ""
 
-    private let lastConfigKey = "island_studio_last_config_v3"
-    private let customPresetsKey = "island_studio_custom_presets_v3"
+    private let lastConfigKey = "island_studio_last_config_v4"
+    private let customPresetsKey = "island_studio_custom_presets_v4"
+    private let masterImageKey = "island_studio_master_photo_v4"
 
     let presetIcons = [
         "terminal.fill", "flame.fill", "bolt.fill", "star.fill", "heart.fill",
@@ -75,7 +79,7 @@ struct ContentView: View {
             iconSource: iconSource,
             iconName: selectedIcon,
             emojiText: emojiText,
-            customImageData: iconSource == .photo ? customImageData : nil,
+            customImageData: iconSource == .photo ? (customImageData ?? masterImageData) : nil,
             photoIsCircle: photoIsCircle,
             iconColorHex: iconColor.toHex(),
             textColorHex: textColor.toHex(),
@@ -288,7 +292,12 @@ struct ContentView: View {
                     }
 
                     // Biểu tượng: SF Symbol / Emoji / Ảnh thư viện
-                    Section(header: Text("Biểu tượng (Icon / Emoji / Ảnh từ máy)")) {
+                    Section(
+                        header: Text("Biểu tượng (Icon / Emoji / Ảnh từ máy)"),
+                        footer: iconSource == .photo
+                            ? Text("Mẹo: Tắt Checklist hoặc Phím tắt App sẽ tự động tăng thêm dung lượng để ảnh trên Đảo động nét tối đa (lên tới 112×112 px).")
+                            : nil
+                    ) {
                         Picker("Loại biểu tượng", selection: $iconSource) {
                             ForEach(IslandIconSource.allCases, id: \.self) { src in
                                 Text(src.rawValue).tag(src)
@@ -328,16 +337,22 @@ struct ContentView: View {
                         case .photo:
                             PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
                                 HStack(spacing: 14) {
-                                    if let data = customImageData, let uiImg = UIImage(data: data) {
-                                        Image(uiImage: uiImg)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: 48, height: 48)
-                                            .clipShape(photoIsCircle ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 10)))
-                                            .overlay(
-                                                (photoIsCircle ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 10)))
-                                                    .stroke(iconColor, lineWidth: 1.5)
-                                            )
+                                    if let data = customImageData ?? masterImageData, let uiImg = UIImage(data: data) {
+                                        if photoIsCircle {
+                                            Image(uiImage: uiImg)
+                                                .resizable()
+                                                .scaledToFill()
+                                                .frame(width: 48, height: 48)
+                                                .clipShape(Circle())
+                                                .overlay(Circle().stroke(iconColor, lineWidth: 1.5))
+                                        } else {
+                                            Image(uiImage: uiImg)
+                                                .resizable()
+                                                .scaledToFill()
+                                                .frame(width: 48, height: 48)
+                                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(iconColor, lineWidth: 1.5))
+                                        }
                                     } else {
                                         Image(systemName: "photo.badge.plus")
                                             .font(.title2)
@@ -348,12 +363,19 @@ struct ContentView: View {
                                     }
 
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(customImageData == nil ? "Chọn ảnh từ Thư viện" : "Đổi ảnh khác")
+                                        Text((customImageData ?? masterImageData) == nil ? "Chọn ảnh từ Thư viện" : "Đổi ảnh khác")
                                             .font(.subheadline.bold())
                                             .foregroundColor(.cyan)
-                                        Text(customImageData == nil ? "Tự động nén nhẹ cho Dynamic Island" : "Đã sẵn sàng (\(customImageData?.count ?? 0) bytes)")
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
+                                        if let data = customImageData {
+                                            let resText = compressedImageSide > 0 ? "\(compressedImageSide)×\(compressedImageSide)px • " : ""
+                                            Text("\(resText)\(data.count) B (Gói \(lastPayloadBytes)/4096 B)")
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        } else {
+                                            Text("Tự động nén độ nét tối đa theo hạn mức 4KB")
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
                                     }
                                     Spacer()
                                     Image(systemName: "chevron.right")
@@ -391,8 +413,11 @@ struct ContentView: View {
                         }
                     }
 
-                    // Mini To-Do Checklist
-                    Section(header: Text("Checklist 3 việc cần làm (Tương tác trên Đảo)")) {
+                    // Mini To-Do Checklist (Chỉ gửi sang Đảo khi bật để nhường dung lượng cho ảnh)
+                    Section(
+                        header: Text("Checklist 3 việc cần làm (Tương tác trên Đảo)"),
+                        footer: Text(showTodos ? "Đang bật Checklist (tốn thêm ~220 bytes dung lượng Đảo)." : "Đang tắt Checklist — đã giải phóng tối đa dung lượng cho ảnh sắc nét.")
+                    ) {
                         Toggle("Hiện Checklist trên Đảo", isOn: $showTodos)
                         if showTodos {
                             ForEach($todos) { $todo in
@@ -408,6 +433,16 @@ struct ContentView: View {
                                     TextField("Nhập đầu việc...", text: $todo.title)
                                         .strikethrough(todo.isDone)
                                 }
+                            }
+
+                            if todos.contains(where: { $0.isDone }) {
+                                Button("Bỏ tích tất cả") {
+                                    for i in todos.indices {
+                                        todos[i].isDone = false
+                                    }
+                                }
+                                .font(.caption)
+                                .foregroundColor(.cyan)
                             }
                         }
                     }
@@ -449,6 +484,7 @@ struct ContentView: View {
                     Section {
                         Button(action: {
                             refreshLocalBattery()
+                            recompressPhotoForCurrentBudget()
                             saveLastConfig()
                             Task { await startOrUpdateActivity() }
                         }) {
@@ -487,6 +523,18 @@ struct ContentView: View {
             .onAppear {
                 loadSavedData()
                 refreshLocalBattery()
+                recompressPhotoForCurrentBudget()
+            }
+            .onChange(of: showTodos) { _ in
+                recompressPhotoForCurrentBudget()
+            }
+            .onChange(of: showLauncher) { _ in
+                recompressPhotoForCurrentBudget()
+            }
+            .onChange(of: iconSource) { newSource in
+                if newSource == .photo {
+                    recompressPhotoForCurrentBudget()
+                }
             }
             .onChange(of: selectedPhotoItem) { newItem in
                 guard let newItem else { return }
@@ -499,12 +547,14 @@ struct ContentView: View {
                     do {
                         if let rawData = try await newItem.loadTransferable(type: Data.self),
                            let uiImg = UIImage(data: rawData),
-                           let compressed = ImageCompressor.compressForIsland(uiImg) {
+                           let master = ImageCompressor.prepareMasterImage(uiImg) {
                             await MainActor.run {
-                                customImageData = compressed
+                                masterImageData = master
+                                UserDefaults.standard.set(master, forKey: masterImageKey)
                                 iconSource = .photo
+                                recompressPhotoForCurrentBudget()
                                 saveLastConfig()
-                                statusMessage = "Đã nạp ảnh (\(compressed.count) bytes). Bấm Cập nhật để đẩy lên Đảo!"
+                                statusMessage = "Đã nạp ảnh nét tối đa (\(compressedImageSide)×\(compressedImageSide)px, \(customImageData?.count ?? 0) B). Bấm Cập nhật để đẩy lên Đảo!"
                             }
                         } else {
                             await MainActor.run {
@@ -526,6 +576,14 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    func recompressPhotoForCurrentBudget() {
+        guard iconSource == .photo, (masterImageData ?? customImageData) != nil else { return }
+        let result = currentPreviewState.optimizedForLiveActivity(masterImageData: masterImageData)
+        customImageData = result.state.customImageData
+        compressedImageSide = result.imageSide
+        lastPayloadBytes = result.payloadBytes
     }
 
     func refreshLocalBattery() {
@@ -554,7 +612,9 @@ struct ContentView: View {
         iconSource = s.iconSource
         emojiText = s.emojiText
         selectedIcon = s.iconName
-        customImageData = s.customImageData
+        if let presetImg = s.customImageData {
+            customImageData = presetImg
+        }
         photoIsCircle = s.photoIsCircle
         iconColor = Color(hex: s.iconColorHex)
         textColor = Color(hex: s.textColorHex)
@@ -567,12 +627,13 @@ struct ContentView: View {
         counterValue = s.counter
         showCounter = s.showCounter
         showTodos = s.showTodos
-        todos = s.todos
+        todos = s.todos.isEmpty ? MyIslandAttributes.ContentState.defaultTodos : s.todos
         showLauncher = s.showLauncher
-        shortcuts = s.shortcuts
+        shortcuts = s.shortcuts.isEmpty ? MyIslandAttributes.ContentState.defaultShortcuts : s.shortcuts
         countdownMinutes = preset.countdownMinutes
         countdownSeconds = preset.countdownSeconds
         cityName = preset.cityName
+        recompressPhotoForCurrentBudget()
         saveLastConfig()
         statusMessage = "Đã nạp Preset '\(preset.name)'. Bấm Cập nhật để đẩy lên Đảo!"
     }
@@ -618,6 +679,9 @@ struct ContentView: View {
     }
 
     func loadSavedData() {
+        if let master = UserDefaults.standard.data(forKey: masterImageKey) {
+            masterImageData = master
+        }
         if let data = UserDefaults.standard.data(forKey: customPresetsKey),
            let decoded = try? JSONDecoder().decode([IslandPreset].self, from: data) {
             customPresets = decoded
@@ -631,23 +695,42 @@ struct ContentView: View {
 
     func startOrUpdateActivity() async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
-            statusMessage = "Bạn chưa bật quyền Live Activities trong Cài đặt iPhone."
+            await MainActor.run {
+                statusMessage = "Bạn chưa bật quyền Live Activities trong Cài đặt iPhone."
+            }
             return
         }
 
-        let state = currentPreviewState
-        let content = ActivityContent(state: state, staleDate: nil)
+        let optimized = currentPreviewState.optimizedForLiveActivity(masterImageData: masterImageData)
+        await MainActor.run {
+            if iconSource == .photo {
+                customImageData = optimized.state.customImageData
+                compressedImageSide = optimized.imageSide
+            }
+            lastPayloadBytes = optimized.payloadBytes
+        }
+
+        let content = ActivityContent(state: optimized.state, staleDate: nil)
+        let summarySuffix = iconSource == .photo && optimized.imageSide > 0
+            ? " (Ảnh \(optimized.imageSide)×\(optimized.imageSide)px • \(optimized.imageBytes) B • Gói \(optimized.payloadBytes)/4096 B)"
+            : " (Gói \(optimized.payloadBytes)/4096 B)"
 
         if let existingActivity = Activity<MyIslandAttributes>.activities.first {
             await existingActivity.update(content)
-            statusMessage = "Đã cập nhật Dynamic Island!"
+            await MainActor.run {
+                statusMessage = "Đã cập nhật Dynamic Island!\(summarySuffix)"
+            }
         } else {
             do {
                 let attributes = MyIslandAttributes()
                 let _ = try Activity.request(attributes: attributes, content: content, pushType: nil)
-                statusMessage = "Đã bật Dynamic Island thành công!"
+                await MainActor.run {
+                    statusMessage = "Đã bật Dynamic Island thành công!\(summarySuffix)"
+                }
             } catch {
-                statusMessage = "Lỗi: \(error.localizedDescription)"
+                await MainActor.run {
+                    statusMessage = "Lỗi: \(error.localizedDescription)"
+                }
             }
         }
     }
@@ -656,7 +739,9 @@ struct ContentView: View {
         for activity in Activity<MyIslandAttributes>.activities {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
-        statusMessage = "Đã tắt Dynamic Island."
+        await MainActor.run {
+            statusMessage = "Đã tắt Dynamic Island."
+        }
     }
 
     func fetchWeather() async {
@@ -713,7 +798,6 @@ struct ContentView: View {
                 saveLastConfig()
             }
 
-            // Nếu Dynamic Island đang bật thì tự cập nhật luôn nhiệt độ mới
             if Activity<MyIslandAttributes>.activities.first != nil {
                 await startOrUpdateActivity()
             }
@@ -895,11 +979,19 @@ struct IslandLivePreviewHeader: View {
         switch state.iconSource {
         case .photo:
             if let data = state.customImageData, let uiImg = UIImage(data: data) {
-                Image(uiImage: uiImg)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: size, height: size)
-                    .clipShape(state.photoIsCircle ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: size * 0.25)))
+                if state.photoIsCircle {
+                    Image(uiImage: uiImg)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: size, height: size)
+                        .clipShape(Circle())
+                } else {
+                    Image(uiImage: uiImg)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: size, height: size)
+                        .clipShape(RoundedRectangle(cornerRadius: size * 0.25))
+                }
             } else {
                 Image(systemName: "photo.fill")
                     .font(.system(size: size * 0.7))

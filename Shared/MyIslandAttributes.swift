@@ -50,12 +50,25 @@ struct QuickShortcut: Codable, Hashable, Identifiable {
     var name: String
     var icon: String
     var urlString: String
+
+    enum CodingKeys: String, CodingKey {
+        case id = "i"
+        case name = "n"
+        case icon = "c"
+        case urlString = "u"
+    }
 }
 
 struct TodoItem: Codable, Hashable, Identifiable {
     var id: String = UUID().uuidString
     var title: String
     var isDone: Bool = false
+
+    enum CodingKeys: String, CodingKey {
+        case id = "i"
+        case title = "t"
+        case isDone = "d"
+    }
 }
 
 enum BatteryHelper {
@@ -70,44 +83,63 @@ enum BatteryHelper {
 }
 
 enum ImageCompressor {
-    static func compressForIsland(_ uiImage: UIImage) -> Data? {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1.0
-        format.opaque = true
+    /// Tạo bản ảnh gốc 240x240 sắc nét để lưu trong app, dùng nén lại tự động khi thay đổi Checklist/Phím tắt
+    static func prepareMasterImage(_ uiImage: UIImage) -> Data? {
+        let resized = renderSquare(uiImage, side: 240)
+        return resized.jpegData(compressionQuality: 0.88)
+    }
 
-        let sizes: [CGFloat] = [64, 56, 48, 36]
-        let qualities: [CGFloat] = [0.6, 0.5, 0.4, 0.3, 0.2, 0.12]
-        let maxBytes = 1450
+    /// Nén ảnh tối đa độ nét (ưu tiên 112px/96px chất lượng cao, loại bỏ ICC Display P3 để tiết kiệm ~500B)
+    static func compressForIsland(_ uiImage: UIImage, maxBytes: Int) -> (data: Data, side: Int)? {
+        let ladders: [(side: CGFloat, qualities: [CGFloat])] = [
+            (112, [0.85, 0.78, 0.70, 0.62, 0.55]),
+            (96,  [0.85, 0.78, 0.70, 0.62, 0.55, 0.48]),
+            (80,  [0.82, 0.74, 0.65, 0.56, 0.46]),
+            (64,  [0.78, 0.68, 0.58, 0.48, 0.38, 0.28]),
+            (48,  [0.65, 0.50, 0.35, 0.22, 0.14])
+        ]
 
-        for side in sizes {
-            let targetSize = CGSize(width: side, height: side)
-            let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
-            let resized = renderer.image { _ in
-                let aspect = max(targetSize.width / uiImage.size.width, targetSize.height / uiImage.size.height)
-                let w = uiImage.size.width * aspect
-                let h = uiImage.size.height * aspect
-                let rect = CGRect(
-                    x: (targetSize.width - w) / 2,
-                    y: (targetSize.height - h) / 2,
-                    width: w,
-                    height: h
-                )
-                uiImage.draw(in: rect)
-            }
-
-            for q in qualities {
+        for step in ladders {
+            let resized = renderSquare(uiImage, side: step.side)
+            for q in step.qualities {
                 if let data = resized.jpegData(compressionQuality: q), data.count <= maxBytes {
-                    return data
+                    return (data, Int(step.side))
                 }
             }
         }
 
-        let fallbackSize = CGSize(width: 32, height: 32)
-        let renderer = UIGraphicsImageRenderer(size: fallbackSize, format: format)
-        let tiny = renderer.image { _ in
-            uiImage.draw(in: CGRect(origin: .zero, size: fallbackSize))
+        let tiny = renderSquare(uiImage, side: 32)
+        if let fallback = tiny.jpegData(compressionQuality: 0.15) {
+            return (fallback, 32)
         }
-        return tiny.jpegData(compressionQuality: 0.15)
+        return nil
+    }
+
+    static func compressForIsland(_ uiImage: UIImage) -> Data? {
+        compressForIsland(uiImage, maxBytes: 1800)?.data
+    }
+
+    private static func renderSquare(_ uiImage: UIImage, side: CGFloat) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0
+        format.opaque = true
+        format.preferredRange = .standard
+
+        let targetSize = CGSize(width: side, height: side)
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        return renderer.image { ctx in
+            ctx.cgContext.interpolationQuality = .high
+            let aspect = max(targetSize.width / uiImage.size.width, targetSize.height / uiImage.size.height)
+            let w = uiImage.size.width * aspect
+            let h = uiImage.size.height * aspect
+            let rect = CGRect(
+                x: (targetSize.width - w) / 2,
+                y: (targetSize.height - h) / 2,
+                width: w,
+                height: h
+            )
+            uiImage.draw(in: rect)
+        }
     }
 }
 
@@ -152,22 +184,116 @@ struct MyIslandAttributes: ActivityAttributes {
         var showLauncher: Bool
         var shortcuts: [QuickShortcut]
 
+        enum CodingKeys: String, CodingKey {
+            case compactText = "a"
+            case expandedTitle = "b"
+            case expandedSubtitle = "c"
+            case iconSource = "d"
+            case iconName = "e"
+            case emojiText = "f"
+            case customImageData = "g"
+            case photoIsCircle = "h"
+            case iconColorHex = "i"
+            case textColorHex = "j"
+            case keylineColorHex = "k"
+            case useKeyline = "l"
+            case bgStyle = "m"
+            case bgColorHex = "n"
+            case bgColor2Hex = "o"
+            case fontStyle = "p"
+            case mode = "q"
+            case weatherInfo = "r"
+            case countdownStart = "s"
+            case countdownEnd = "t"
+            case stopwatchStart = "u"
+            case batteryLevel = "v"
+            case isCharging = "w"
+            case counter = "x"
+            case showCounter = "y"
+            case showTodos = "z"
+            case todos = "td"
+            case showLauncher = "sl"
+            case shortcuts = "sc"
+        }
+
         var safeCountdownRange: ClosedRange<Date> {
             let safeEnd = max(countdownEnd, countdownStart.addingTimeInterval(1))
             return countdownStart...safeEnd
         }
 
+        /// Tự động cắt dữ liệu các mục đang tắt và phân bổ toàn bộ dung lượng trống cho ảnh sắc nét nhất
+        func optimizedForLiveActivity(masterImageData: Data?) -> (state: ContentState, payloadBytes: Int, imageBytes: Int, imageSide: Int) {
+            var slim = self
+
+            if !slim.showTodos {
+                slim.todos = []
+            } else {
+                slim.todos = slim.todos
+                    .filter { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                    .prefix(3)
+                    .enumerated()
+                    .map { idx, item in
+                        TodoItem(id: "t\(idx + 1)", title: item.title, isDone: item.isDone)
+                    }
+                if slim.todos.isEmpty {
+                    slim.showTodos = false
+                }
+            }
+
+            if !slim.showLauncher {
+                slim.shortcuts = []
+            } else {
+                slim.shortcuts = slim.shortcuts
+                    .filter { !$0.urlString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                    .prefix(4)
+                    .enumerated()
+                    .map { idx, item in
+                        QuickShortcut(id: "s\(idx + 1)", name: item.name, icon: item.icon, urlString: item.urlString)
+                    }
+            }
+
+            if slim.mode != .text { slim.compactText = "" }
+            if slim.mode != .weather { slim.weatherInfo = "" }
+            if slim.iconSource != .symbol { slim.iconName = "" }
+            if slim.iconSource != .emoji { slim.emojiText = "" }
+
+            slim.customImageData = nil
+            let encoder = JSONEncoder()
+            let baseBytes = (try? encoder.encode(slim).count) ?? 650
+
+            var finalImageBytes = 0
+            var finalImageSide = 0
+
+            if slim.iconSource == .photo {
+                // Giữ trần tổng JSON ở 3,600 bytes (dư ~500 bytes an toàn dưới ngưỡng 4,096 bytes của iOS)
+                let targetTotalJSON = 3600
+                let availableBase64 = max(800, targetTotalJSON - baseBytes)
+                let maxRawImageBytes = max(600, (availableBase64 * 3) / 4 - 16)
+
+                if let sourceData = masterImageData ?? self.customImageData,
+                   let uiImage = UIImage(data: sourceData),
+                   let compressed = ImageCompressor.compressForIsland(uiImage, maxBytes: maxRawImageBytes) {
+                    slim.customImageData = compressed.data
+                    finalImageBytes = compressed.data.count
+                    finalImageSide = compressed.side
+                }
+            }
+
+            let totalPayload = (try? encoder.encode(slim).count) ?? baseBytes
+            return (slim, totalPayload, finalImageBytes, finalImageSide)
+        }
+
         static let defaultShortcuts: [QuickShortcut] = [
-            QuickShortcut(name: "YouTube", icon: "play.rectangle.fill", urlString: "youtube://"),
-            QuickShortcut(name: "Messenger", icon: "message.fill", urlString: "fb-messenger://"),
-            QuickShortcut(name: "Spotify", icon: "music.note", urlString: "spotify://"),
-            QuickShortcut(name: "Zalo", icon: "bubble.left.fill", urlString: "zalo://")
+            QuickShortcut(id: "s1", name: "YouTube", icon: "play.rectangle.fill", urlString: "youtube://"),
+            QuickShortcut(id: "s2", name: "Messenger", icon: "message.fill", urlString: "fb-messenger://"),
+            QuickShortcut(id: "s3", name: "Spotify", icon: "music.note", urlString: "spotify://"),
+            QuickShortcut(id: "s4", name: "Zalo", icon: "bubble.left.fill", urlString: "zalo://")
         ]
 
         static let defaultTodos: [TodoItem] = [
-            TodoItem(id: "todo-1", title: "Hoàn thành bài tập", isDone: false),
-            TodoItem(id: "todo-2", title: "Tập gym 45 phút", isDone: false),
-            TodoItem(id: "todo-3", title: "Uống đủ 2L nước", isDone: false)
+            TodoItem(id: "t1", title: "Hoàn thành bài tập", isDone: false),
+            TodoItem(id: "t2", title: "Tập gym 45 phút", isDone: false),
+            TodoItem(id: "t3", title: "Uống đủ 2L nước", isDone: false)
         ]
 
         static let `default` = ContentState(
